@@ -1,5 +1,14 @@
+# Environment files
 .env
-/node_modules
-package-lock.json
-package.json
-/.vscode
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
