@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Dashboard | Meet</title>
+
+    <style>
+        :root {
+            --text: #232333;
+            --muted: #777783;
+            --line: #e5e5ea;
+            --blue: #0b6bde;
+            --blue-hover: #0a5ec2;
+            --background: #ffffff;
+            --soft-blue: #eef5ff;
+            --radius: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", system-ui, Arial, sans-serif;
+            color: var(--text);
+            background: var(--background);
+            min-height: 100vh;
+        }
+
+        /* ---------- Layout ---------- */
+
+        .layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        /* ---------- Sidebar ---------- */
+
+        .sidebar {
+            width: 220px;
+            flex-shrink: 0;
+            border-right: 1px solid var(--line);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 12px;
+        }
+
+        .brand {
+            font-size: 25px;
+            font-weight: 700;
+            letter-spacing: -1px;
+            padding: 0 12px;
+            margin-bottom: 42px;
+        }
+
+        .nav {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .nav a {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 11px 12px;
+            border-radius: 8px;
+            color: var(--muted);
+            text-decoration: none;
+            font-size: 14px;
+            transition: 0.15s;
+        }
+
+        .nav a:hover {
+            background: #f5f6f8;
+            color: var(--text);
+        }
+
+        .nav a.active {
+            background: var(--blue);
+            color: white;
+        }
+
+        .nav-icon {
+            width: 18px;
+            text-align: center;
+            font-size: 16px;
+        }
+
+        .sidebar-bottom {
+            margin-top: auto;
+            padding-top: 20px;
+            border-top: 1px solid var(--line);
+        }
+
+        /* ---------- Main area ---------- */
+
+        .main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* ---------- Topbar ---------- */
+
+        .topbar {
+            height: 64px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 32px;
+        }
+
+        .topbar__label {
+            font-size: 14px;
+            color: var(--muted);
+        }
+
+        .profile {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+        }
+
+        .profile__avatar {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            background: var(--soft-blue);
+            color: var(--blue);
+            font-weight: 600;
+        }
+
+        /* ---------- Dashboard content ---------- */
+
+        .content {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 38px 32px;
+        }
+
+        .welcome {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .welcome__greeting {
+            font-size: 13px;
+            color: var(--muted);
+            margin-bottom: 7px;
+        }
+
+        .welcome h1 {
+            font-size: 32px;
+            letter-spacing: -1px;
+            margin: 0;
+            font-weight: 600;
+        }
+
+        .welcome__description {
+            color: var(--muted);
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        /* ---------- Section ---------- */
+
+        .section {
+            margin-top: 38px;
+        }
+
+        .section__heading {
+            font-size: 18px;
+            font-weight: 600;
+            margin: 0 0 18px;
+        }
+
+        /* ---------- Meeting cards ---------- */
+
+        .meeting-options {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 20px;
+        }
+
+        .meeting-card {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            padding: 26px;
+            min-height: 225px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            transition: box-shadow 0.2s, transform 0.2s;
+        }
+
+        .meeting-card:hover {
+            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.06);
+            transform: translateY(-2px);
+        }
+
+        .meeting-card__icon {
+            width: 48px;
+            height: 48px;
+            display: grid;
+            place-items: center;
+            border-radius: 12px;
+            background: var(--soft-blue);
+            color: var(--blue);
+            font-size: 23px;
+            margin-bottom: 20px;
+        }
+
+        .meeting-card h3 {
+            font-size: 18px;
+            margin: 0 0 8px;
+            font-weight: 600;
+        }
+
+        .meeting-card p {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 0 0 22px;
+        }
+
+        .meeting-card__button {
+            margin-top: auto;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 11px 18px;
+            border: 0;
+            border-radius: 8px;
+            background: var(--blue);
+            color: white;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .meeting-card__button:hover {
+            background: var(--blue-hover);
+        }
+
+        .meeting-card__button:focus-visible,
+        .nav a:focus-visible {
+            outline: 3px solid #4f9bf0;
+            outline-offset: 3px;
+        }
+
+        /* ---------- Empty state ---------- */
+
+        .empty-state {
+            margin-top: 30px;
+            padding: 30px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            text-align: center;
+        }
+
+        .empty-state__icon {
+            font-size: 28px;
+            margin-bottom: 12px;
+        }
+
+        .empty-state h3 {
+            font-size: 16px;
+            margin: 0 0 7px;
+        }
+
+        .empty-state p {
+            color: var(--muted);
+            font-size: 14px;
+            margin: 0;
+        }
+
+
+        /* ---------- Join + modal ---------- */
+
+        .join-row {
+            display: flex;
+            gap: 12px;
+            max-width: 520px;
+        }
+
+        .join-row input,
+        .modal__input {
+            flex: 1;
+            min-width: 0;
+            height: 44px;
+            padding: 0 14px;
+            border: 1.5px solid #c8c8d0;
+            border-radius: 8px;
+            font: inherit;
+            font-size: 15px;
+            color: var(--text);
+        }
+
+        .join-row input:focus,
+        .modal__input:focus {
+            outline: none;
+            border-color: #4f9bf0;
+            box-shadow: 0 0 0 2px rgba(79, 155, 240, 0.25);
+        }
+
+        .form-error {
+            color: #d93025;
+            font-size: 13px;
+            margin: 8px 0 0;
+        }
+
+        .form-error:empty {
+            display: none;
+        }
+
+        .meeting-card__button:disabled {
+            opacity: 0.65;
+            cursor: progress;
+        }
+
+        .modal {
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            background: rgba(20, 20, 28, 0.45);
+            z-index: 20;
+        }
+
+        .modal[hidden] {
+            display: none;
+        }
+
+        .modal__panel {
+            width: 100%;
+            max-width: 420px;
+            padding: 28px;
+            border-radius: var(--radius);
+            background: #fff;
+        }
+
+        .modal__panel h3 {
+            margin: 0 0 6px;
+            font-size: 20px;
+        }
+
+        .modal__panel p {
+            margin: 0 0 18px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .modal__input {
+            display: block;
+            width: 100%;
+        }
+
+        .modal__actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .btn-secondary {
+            padding: 11px 18px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            font: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn-secondary:hover {
+            background: #f5f6f8;
+        }
+
+        /* ---------- Responsive ---------- */
+
+        @media (max-width: 760px) {
+            .sidebar {
+                width: 68px;
+                padding: 20px 8px;
+            }
+
+            .brand {
+                font-size: 17px;
+                padding: 0;
+                text-align: center;
+            }
+
+            .nav a {
+                justify-content: center;
+                padding: 12px 4px;
+            }
+
+            .nav a span:last-child {
+                display: none;
+            }
+
+            .sidebar-bottom {
+                display: none;
+            }
+
+            .content {
+                padding: 30px 20px;
+            }
+
+            .topbar {
+                padding: 0 20px;
+            }
+        }
+
+        @media (max-width: 520px) {
+            .meeting-options {
+                grid-template-columns: 1fr;
+            }
+
+            .welcome h1 {
+                font-size: 26px;
+            }
+
+            .content {
+                padding: 26px 16px;
+            }
+
+            .meeting-card {
+                min-height: 205px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="layout">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+
+        <div class="brand">Meet.</div>
+
+        <nav class="nav">
+            <a href="dashboard.html" class="active">
+                <span class="nav-icon">▦</span>
+                <span>Dashboard</span>
+            </a>
+
+            <a href="#" id="host-nav">
+                <span class="nav-icon">▣</span>
+                <span>Host a Meeting</span>
+            </a>
+
+            <a href="#" id="create-nav">
+                <span class="nav-icon">＋</span>
+                <span>Create a Meeting</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <nav class="nav">
+                <a href="#" id="settings-nav">
+                    <span class="nav-icon">⚙</span>
+                    <span>Settings</span>
+                </a>
+
+                <a href="#" id="logout-btn">
+                    <span class="nav-icon">↪</span>
+                    <span>Sign out</span>
+                </a>
+            </nav>
+        </div>
+
+    </aside>
+
+    <!-- Main content -->
+    <main class="main">
+
+        <!-- Topbar -->
+        <header class="topbar">
+            <div class="topbar__label">Dashboard</div>
+
+            <div class="profile">
+                <span id="profile-username">Loading...</span>
+                <div class="profile__avatar" id="profile-avatar">?</div>
+            </div>
+        </header>
+
+        <!-- Dashboard -->
+        <div class="content">
+
+            <section class="welcome">
+                <div>
+                    <div class="welcome__greeting">Your workspace</div>
+
+                    <h1>
+                        Hello, <span id="username">there</span>!
+                    </h1>
+
+                    <p class="welcome__description">
+                        Ready to connect? Start a meeting or schedule one.
+                    </p>
+                </div>
+            </section>
+
+            <!-- Meeting options -->
+            <section class="section">
+
+                <h2 class="section__heading">Meetings</h2>
+
+                <div class="meeting-options">
+
+                    <!-- Host a meeting -->
+                    <article class="meeting-card">
+
+                        <div class="meeting-card__icon">▣</div>
+
+                        <h3>Host a meeting</h3>
+
+                        <p>
+                            Start an instant meeting and invite others
+                            to join you.
+                        </p>
+
+                        <button
+                            class="meeting-card__button"
+                            id="host-meeting-btn"
+                            type="button">
+                            Start meeting <span>→</span>
+                        </button>
+
+                    </article>
+
+                    <!-- Create a meeting -->
+                    <article class="meeting-card">
+
+                        <div class="meeting-card__icon">＋</div>
+
+                        <h3>Create a meeting</h3>
+
+                        <p>
+                            Set up a meeting, configure its details
+                            and prepare to invite participants.
+                        </p>
+
+                        <button
+                            class="meeting-card__button"
+                            id="create-meeting-btn"
+                            type="button">
+                            Create meeting <span>→</span>
+                        </button>
+
+                    </article>
+
+                </div>
+
+            </section>
+
+            <!-- Join a meeting -->
+            <section class="section">
+
+                <h2 class="section__heading">Join a meeting</h2>
+
+                <form class="join-row" id="join-form" novalidate>
+                    <input
+                        id="join-input"
+                        type="text"
+                        placeholder="Meeting ID or invite link"
+                        autocomplete="off"
+                        aria-label="Meeting ID or invite link">
+                    <button class="meeting-card__button" type="submit">Join</button>
+                </form>
+                <p class="form-error" id="join-error" role="alert"></p>
+
+            </section>
+
+            <!-- Future meeting area -->
+            <section class="section">
+
+                <h2 class="section__heading">Your meetings</h2>
+
+                <div class="empty-state">
+
+                    <div class="empty-state__icon">▤</div>
+
+                    <h3>No meetings yet</h3>
+
+                    <p>
+                        Your meetings will appear here once you create one.
+                    </p>
+
+                </div>
+
+            </section>
+
+        </div>
+    </main>
+
+</div>
+
+<!-- Create meeting modal -->
+<div class="modal" id="create-modal" hidden>
+    <form class="modal__panel" id="create-form" novalidate>
+        <h3>Create a meeting</h3>
+        <p>Name your meeting. You'll get a meeting ID to share, and you'll join the room right away.</p>
+        <input
+            class="modal__input"
+            id="meeting-name"
+            type="text"
+            maxlength="80"
+            placeholder="Meeting name"
+            autocomplete="off"
+            aria-label="Meeting name">
+        <p class="form-error" id="create-error" role="alert"></p>
+        <div class="modal__actions">
+            <button class="btn-secondary" id="create-cancel" type="button">Cancel</button>
+            <button class="meeting-card__button" id="create-submit" type="submit">Create and join</button>
+        </div>
+    </form>
+</div>
+
+<script type="module" src="dashboard.js"></script>
+
+</body>
+</html>

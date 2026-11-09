@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Sign in</title>
+  <style>
+    :root {
+      --text: #232333;
+      --muted: #6e6e7a;
+      --line: #e1e1e6;
+      --border: #c8c8d0;
+      --blue: #0b6bde;
+      --blue-hover: #0a5ec2;
+      --focus: #4f9bf0;
+      --error: #d93025;
+      --radius: 12px;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      background: #fff;
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    body {
+      border-top: 1px solid var(--line);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .login {
+      width: 100%;
+      max-width: 400px;
+      padding: 24px 20px;
+      text-align: center;
+    }
+
+    .login__title {
+      margin: 0 0 32px;
+      font-size: 28px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      line-height: 1.25;
+      text-wrap: balance;
+    }
+
+    /* ---------- Fields ---------- */
+
+    .field {
+      display: block;
+      padding: 8px 14px 10px;
+      text-align: left;
+      background: #fff;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      cursor: text;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .field:focus-within {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 2px rgba(79, 155, 240, 0.25);
+    }
+
+    .field[data-invalid="true"] {
+      border-color: var(--error);
+      box-shadow: none;
+    }
+
+    .field__label {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.3;
+    }
+
+    .field__input {
+      display: block;
+      width: 100%;
+      height: 24px;
+      padding: 0;
+      margin-top: 2px;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--text);
+      font: inherit;
+      font-size: 16px;
+    }
+
+    .login__error {
+      margin: 6px 4px 0;
+      text-align: left;
+      color: var(--error);
+      font-size: 13px;
+    }
+
+    .password {
+      margin-top: 20px;
+    }
+
+    /* ---------- Primary button ---------- */
+
+    .btn-primary {
+      display: block;
+      width: 100%;
+      height: 48px;
+      margin-top: 16px;
+      border: 0;
+      border-radius: var(--radius);
+      background: var(--blue);
+      color: #fff;
+      font: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .btn-primary:hover {
+      background: var(--blue-hover);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.65;
+      cursor: progress;
+    }
+
+    /* ---------- Divider ---------- */
+
+    .divider {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin: 36px 0 24px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    /* ---------- Google button ---------- */
+
+    .social {
+      display: flex;
+      justify-content: center;
+    }
+
+    .social__btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 0;
+      border: 0;
+      background: none;
+      color: var(--muted);
+      font: inherit;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .social__icon {
+      display: grid;
+      place-items: center;
+      width: 56px;
+      height: 56px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #fff;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .social__btn:hover .social__icon {
+      background: #f6f7f9;
+      border-color: #d0d0d8;
+    }
+
+    .social__btn:disabled {
+      opacity: 0.65;
+      cursor: progress;
+    }
+
+    /* ---------- Register + footer ---------- */
+
+    .login__register {
+      margin: 36px 0 0;
+      font-size: 15px;
+      color: var(--muted);
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .login__footer {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 28px;
+      font-size: 14px;
+    }
+
+    /* ---------- Keyboard focus ---------- */
+
+    .btn-primary:focus-visible,
+    .social__btn:focus-visible .social__icon,
+    a:focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+
+    /* ---------- Small screens ---------- */
+
+    @media (max-width: 520px) {
+      .login__title {
+        font-size: 24px;
+        margin-bottom: 28px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="login">
+    <h2 class="login__title">Welcome! Please sign in</h2>
+
+    <form id="login-form" class="login__form" novalidate>
+      <label class="field" for="email">
+        <span class="field__label">Enter your email or username</span>
+        <input
+          class="field__input"
+          id="email"
+          name="email"
+          type="text"
+          autocomplete="username"
+          autofocus
+          required
+          aria-describedby="email-error">
+      </label>
+      <p id="email-error" class="login__error" role="alert" hidden></p>
+
+      <div class="password">
+        <label class="field" for="password">
+          <span class="field__label">Enter your password</span>
+          <input
+            class="field__input"
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            aria-describedby="password-error">
+        </label>
+        <p id="password-error" class="login__error" role="alert" hidden></p>
+
+        <button id="sign-in-btn" class="btn-primary" type="submit">Sign in</button>
+      </div>
+    </form>
+
+    <div class="divider"><span>Or sign in with</span></div>
+
+    <div class="social">
+      <button id="google-btn" class="social__btn" type="button">
+        <span class="social__icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" width="22" height="22">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+        </span>
+        <span class="social__label">Google</span>
+      </button>
+    </div>
+
+    <p class="login__register">
+      Not registered? <a href="register.html">Register here</a>
+    </p>
+
+    <nav class="login__footer" aria-label="Footer">
+      <a href="#">Help</a>
+      <a href="#">Terms</a>
+      <a href="#">Privacy</a>
+    </nav>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script type="module" src="login.js"></script>
+</body>
+</html>

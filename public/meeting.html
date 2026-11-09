@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Meeting | Meet</title>
+  <style>
+    :root {
+      --text: #232333;
+      --muted: #777783;
+      --line: #e5e5ea;
+      --blue: #0b6bde;
+      --blue-hover: #0a5ec2;
+      --soft-blue: #eef5ff;
+      --danger: #d93025;
+      --danger-hover: #b9271d;
+      --stage: #14141c;
+      --radius: 12px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex;
+      flex-direction: column;
+      font-family: "Segoe UI", system-ui, Arial, sans-serif;
+      color: var(--text);
+      background: #fff;
+    }
+
+    /* ---------- Header ---------- */
+    .bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      height: 64px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+    }
+    .bar__title { font-size: 16px; font-weight: 600; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bar__meta { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+    .code { padding: 6px 10px; border-radius: 8px; background: var(--soft-blue); color: var(--blue); font-weight: 600; letter-spacing: 0.02em; }
+
+    /* ---------- Stage ---------- */
+    .stage { flex: 1; min-height: 0; background: var(--stage); padding: 16px; overflow-y: auto; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+      gap: 12px;
+      align-content: center;
+      min-height: 100%;
+    }
+    .tile {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      border-radius: var(--radius);
+      background: #23232f;
+      overflow: hidden;
+    }
+    .tile video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .tile--self video { transform: scaleX(-1); }
+    .tile__tag {
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 13px;
+    }
+    .tile__state {
+      position: absolute;
+      right: 10px;
+      top: 10px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 12px;
+    }
+    .tile__state:empty { display: none; }
+
+    /* ---------- Controls ---------- */
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      padding: 14px 16px;
+      border-top: 1px solid var(--line);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .btn {
+      min-height: 44px;
+      padding: 0 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #f5f6f8; }
+    .btn[aria-pressed="true"] { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .btn--danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .btn--danger:hover { background: var(--danger-hover); }
+    .btn:focus-visible { outline: 3px solid #4f9bf0; outline-offset: 3px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ---------- Notices ---------- */
+    .notice {
+      position: fixed;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: #fff;
+      text-align: center;
+    }
+    .notice[hidden] { display: none; }
+    .notice h2 { margin: 0 0 8px; font-size: 22px; }
+    .notice p { margin: 0 0 20px; color: var(--muted); font-size: 15px; }
+    .notice a { display: inline-block; padding: 12px 20px; border-radius: 10px; background: var(--blue); color: #fff; text-decoration: none; font-weight: 600; }
+    .notice a:hover { background: var(--blue-hover); }
+    .banner { padding: 10px 24px; background: var(--soft-blue); color: var(--blue); font-size: 14px; text-align: center; }
+    .banner[hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <h1 class="bar__title" id="meeting-title">Joining…</h1>
+    <div class="bar__meta">
+      <span>Meeting ID</span>
+      <span class="code" id="meeting-code">—</span>
+      <button class="btn" id="copy-btn" type="button">Copy invite link</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <main class="stage">
+    <div class="grid" id="grid"></div>
+  </main>
+
+  <footer class="controls">
+    <button class="btn" id="mic-btn" type="button" aria-pressed="false">Mute</button>
+    <button class="btn" id="cam-btn" type="button" aria-pressed="false">Stop video</button>
+    <button class="btn" id="leave-btn" type="button">Leave</button>
+    <button class="btn btn--danger" id="end-btn" type="button" hidden>End meeting for all</button>
+  </footer>
+
+  <div class="notice" id="notice" hidden>
+    <div>
+      <h2 id="notice-title">Something went wrong</h2>
+      <p id="notice-text"></p>
+      <a href="dashboard.html">Back to dashboard</a>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="meeting.js"></script>
+</body>
+</html>

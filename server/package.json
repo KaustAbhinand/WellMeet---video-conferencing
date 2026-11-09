@@ -1,0 +1,19 @@
+{
+  "name": "video-conferencing-system",
+  "version": "1.0.0",
+  "description": "AI video conferencing system: signaling server and meeting API",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}

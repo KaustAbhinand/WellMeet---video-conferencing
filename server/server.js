@@ -1,0 +1,192 @@
+import "dotenv/config";
+import crypto from "crypto";
+import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
+import express from "express";
+import { Server } from "socket.io";
+import { createClient } from "@supabase/supabase-js";
+
+const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PORT = 3000 } = process.env;
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in server/.env");
+  process.exit(1);
+}
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const MAX_PEERS = 6; // mesh limit
+const ID_RE = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
+
+/* ---------------- helpers ---------------- */
+
+const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
+const randomPart = (n) =>
+  Array.from({ length: n }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
+const generateMeetingId = () => `${randomPart(3)}-${randomPart(4)}-${randomPart(3)}`;
+
+async function getUserFromToken(token) {
+  if (!token) return null;
+  const { data, error } = await supabase.auth.getUser(token);
+  return error ? null : data.user;
+}
+
+const bearer = (req) => (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+
+/* ---------------- HTTP ---------------- */
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "..", "public"))); // only public/ is served
+app.get("/", (req, res) => res.redirect("/login.html"));
+
+// Create a meeting (host)
+app.post("/api/meetings", async (req, res) => {
+  const user = await getUserFromToken(bearer(req));
+  if (!user) return res.status(401).json({ error: "Please sign in again." });
+
+  const name = String(req.body?.name ?? "").trim();
+  if (!name || name.length > 80) {
+    return res.status(400).json({ error: "Meeting name must be 1-80 characters." });
+  }
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const meeting_id = generateMeetingId();
+    const { data, error } = await supabase
+      .from("meetings")
+      .insert({ meeting_id, name, host_id: user.id })
+      .select("meeting_id, name")
+      .single();
+
+    if (!error) return res.status(201).json(data);
+    if (error.code !== "23505") {
+      console.error("Create meeting error:", error);
+      return res.status(500).json({ error: "Could not create the meeting." });
+    }
+    // 23505 = unique violation on meeting_id -> try a new ID
+  }
+  res.status(500).json({ error: "Could not generate a unique meeting ID." });
+});
+
+// Look up a meeting before joining
+app.get("/api/meetings/:id", async (req, res) => {
+  const user = await getUserFromToken(bearer(req));
+  if (!user) return res.status(401).json({ error: "Please sign in again." });
+
+  const id = req.params.id.toLowerCase();
+  if (!ID_RE.test(id)) return res.status(404).json({ error: "Meeting not found." });
+
+  const { data, error } = await supabase
+    .from("meetings")
+    .select("meeting_id, name, status")
+    .eq("meeting_id", id)
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: "Could not look up the meeting." });
+  if (!data) return res.status(404).json({ error: "Meeting not found." });
+  res.json(data);
+});
+
+/* ---------------- Signaling (Socket.IO) ---------------- */
+
+const server = http.createServer(app);
+const io = new Server(server);
+
+// rooms: meetingId -> Map(socketId -> { name, isHost })
+const rooms = new Map();
+
+io.use(async (socket, next) => {
+  try {
+    const user = await getUserFromToken(socket.handshake.auth?.token);
+    if (!user) return next(new Error("unauthorized"));
+
+    const { data: profile } = await supabase
+      .from("users")
+      .select("username")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    socket.data.user = user;
+    socket.data.name = profile?.username || user.email?.split("@")[0] || "Guest";
+    next();
+  } catch (err) {
+    next(new Error("auth failed"));
+  }
+});
+
+function leaveRoom(socket) {
+  const id = socket.data.meetingId;
+  if (!id) return;
+  socket.data.meetingId = null;
+
+  const room = rooms.get(id);
+  if (room) {
+    room.delete(socket.id);
+    if (room.size === 0) rooms.delete(id);
+  }
+  socket.leave(id);
+  io.to(id).emit("peer-left", { id: socket.id });
+}
+
+io.on("connection", (socket) => {
+  socket.on("join-room", async ({ meetingId } = {}, ack) => {
+    if (typeof ack !== "function") return;
+    const id = String(meetingId ?? "").toLowerCase();
+    if (!ID_RE.test(id)) return ack({ ok: false, error: "Invalid meeting ID." });
+    if (socket.data.meetingId) return ack({ ok: false, error: "Already in a meeting." });
+
+    const { data: meeting, error } = await supabase
+      .from("meetings")
+      .select("meeting_id, name, host_id, status")
+      .eq("meeting_id", id)
+      .maybeSingle();
+
+    if (error) return ack({ ok: false, error: "Could not look up the meeting." });
+    if (!meeting) return ack({ ok: false, error: "Meeting not found." });
+    if (meeting.status === "ended") return ack({ ok: false, error: "This meeting has ended." });
+
+    const room = rooms.get(id) ?? new Map();
+    if (room.size >= MAX_PEERS) return ack({ ok: false, error: "This meeting is full." });
+
+    const isHost = meeting.host_id === socket.data.user.id;
+    const peers = [...room.entries()].map(([pid, p]) => ({ id: pid, name: p.name, isHost: p.isHost }));
+
+    room.set(socket.id, { name: socket.data.name, isHost });
+    rooms.set(id, room);
+    socket.data.meetingId = id;
+    socket.join(id);
+
+    // Existing members just prepare to answer; the newcomer sends the offers.
+    socket.to(id).emit("peer-joined", { id: socket.id, name: socket.data.name, isHost });
+    ack({ ok: true, selfId: socket.id, isHost, peers });
+  });
+
+  // offer / answer / ICE candidate, relayed to one peer in the same room
+  socket.on("signal", ({ to, data } = {}) => {
+    const room = rooms.get(socket.data.meetingId);
+    if (!room || !room.has(to) || !data) return;
+    io.to(to).emit("signal", { from: socket.id, data });
+  });
+
+  socket.on("end-meeting", async () => {
+    const id = socket.data.meetingId;
+    if (!id || !rooms.get(id)?.get(socket.id)?.isHost) return;
+
+    await supabase
+      .from("meetings")
+      .update({ status: "ended", end_time: new Date().toISOString() })
+      .eq("meeting_id", id);
+
+    io.to(id).emit("meeting-ended");
+    io.in(id).disconnectSockets(true);
+    rooms.delete(id);
+  });
+
+  socket.on("leave-room", () => leaveRoom(socket));
+  socket.on("disconnect", () => leaveRoom(socket));
+});
+
+server.listen(PORT, () => console.log(`Running on http://localhost:${PORT}`));
