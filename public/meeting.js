@@ -18,6 +18,7 @@ let localStream = null;
 let leaving = false;
 let stopAttention = null; // cleanup function returned by startAttention
 let attentionStarted = false;
+let selfIsHost = false;
 let wakeLock = null;
 let connBannerShown = false;
 const peers = new Map(); // socketId -> { pc, stream, pending: [] }
@@ -91,9 +92,12 @@ function createPeer(id, name, isHost) {
   peers.set(id, peer);
 
   // Always negotiate both kinds, so we can receive even if we can't send.
+  // Students never send video: their camera is only used locally for attention scoring.
+  // Only the host sends video; everyone sends audio.
   for (const kind of ["audio", "video"]) {
     const track = localStream.getTracks().find((t) => t.kind === kind);
-    if (track) pc.addTrack(track, localStream);
+    const sendThis = track && (kind === "audio" || selfIsHost);
+    if (sendThis) pc.addTrack(track, localStream);
     else pc.addTransceiver(kind, { direction: "recvonly" });
   }
 
@@ -278,6 +282,7 @@ async function joinRoom() {
       cleanup();
       return showNotice("Can't join", res?.error || "Something went wrong.");
     }
+    selfIsHost = !!res.isHost;
     if (res.isHost) endBtn.hidden = false;
     requestWakeLock();
 
