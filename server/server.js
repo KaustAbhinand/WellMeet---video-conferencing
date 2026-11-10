@@ -23,6 +23,13 @@ if (!TURN_USERNAME || !TURN_CREDENTIAL) {
   console.warn("TURN_USERNAME / TURN_CREDENTIAL are not set. Calls may fail on restrictive networks.");
 }
 
+console.log(
+  "TURN env keys:",
+  Object.keys(process.env)
+    .filter((k) => /turn/i.test(k))
+    .map((k) => `${JSON.stringify(k)} length=${process.env[k]?.length}`)
+);
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
