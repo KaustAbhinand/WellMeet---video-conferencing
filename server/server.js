@@ -7,10 +7,20 @@ import express from "express";
 import { Server } from "socket.io";
 import { createClient } from "@supabase/supabase-js";
 
-const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, PORT = 3000 } = process.env;
+const {
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
+  TURN_USERNAME,
+  TURN_CREDENTIAL,
+  PORT = 3000,
+} = process.env;
+
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in server/.env");
   process.exit(1);
+}
+if (!TURN_USERNAME || !TURN_CREDENTIAL) {
+  console.warn("TURN_USERNAME / TURN_CREDENTIAL are not set. Calls may fail on restrictive networks.");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -42,6 +52,31 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..", "public"))); // only public/ is served
 app.get("/", (req, res) => res.redirect("/login.html"));
+
+// ICE (STUN/TURN) settings, only for signed-in users.
+// The TURN credentials live in environment variables, never in public files.
+app.get("/api/ice", async (req, res) => {
+  const user = await getUserFromToken(bearer(req));
+  if (!user) return res.status(401).json({ error: "Please sign in again." });
+
+  const iceServers = [
+    { urls: "stun:stun.relay.metered.ca:80" },
+    { urls: "stun:stun.l.google.com:19302" },
+  ];
+
+  if (TURN_USERNAME && TURN_CREDENTIAL) {
+    for (const urls of [
+      "turn:global.relay.metered.ca:80",
+      "turn:global.relay.metered.ca:80?transport=tcp",
+      "turn:global.relay.metered.ca:443",
+      "turns:global.relay.metered.ca:443?transport=tcp",
+    ]) {
+      iceServers.push({ urls, username: TURN_USERNAME, credential: TURN_CREDENTIAL });
+    }
+  }
+
+  res.json({ iceServers });
+});
 
 // Create a meeting (host)
 app.post("/api/meetings", async (req, res) => {
@@ -169,6 +204,30 @@ io.on("connection", (socket) => {
     const room = rooms.get(socket.data.meetingId);
     if (!room || !room.has(to) || !data) return;
     io.to(to).emit("signal", { from: socket.id, data });
+  });
+
+  // student -> host only: attention score (no video, just numbers)
+  socket.on("attention", (p = {}) => {
+    const room = rooms.get(socket.data.meetingId);
+    const me = room?.get(socket.id);
+    if (!me || me.isHost) return;
+
+    const now = Date.now();
+    if (now - (socket.data.lastAttention || 0) < 1000) return; // throttle
+    socket.data.lastAttention = now;
+
+    const num = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
+    const payload = {
+      id: socket.id,
+      name: me.name,
+      score: num(p.score),
+      confidence: num(p.confidence),
+      low: !!p.low,
+    };
+
+    for (const [pid, peer] of room) {
+      if (peer.isHost) io.to(pid).emit("attention", payload);
+    }
   });
 
   socket.on("end-meeting", async () => {
