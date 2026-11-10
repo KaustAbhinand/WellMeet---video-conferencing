@@ -1,9 +1,36 @@
 import { supabase } from "./supabase.js";
 
+// Paste your Metered credentials below (dashboard -> TURN Server -> your credential -> Instructions).
+// Replace YOUR_USERNAME and YOUR_CREDENTIAL. If your dashboard shows a different host than
+// global.relay.metered.ca, use the exact URLs from your dashboard instead.
+const TURN_USERNAME = "81d88e058c49593353be7941";
+const TURN_CREDENTIAL = "y2pksYC9azhC6r8d";
+
 const ICE_CONFIG = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  // Add a TURN server here before real use, e.g.
-  // { urls: "turn:your.turn.host:3478", username: "...", credential: "..." }
+  iceServers: [
+    { urls: "stun:stun.relay.metered.ca:80" },
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: "turn:global.relay.metered.ca:80",
+      username: TURN_USERNAME,
+      credential: TURN_CREDENTIAL,
+    },
+    {
+      urls: "turn:global.relay.metered.ca:80?transport=tcp",
+      username: TURN_USERNAME,
+      credential: TURN_CREDENTIAL,
+    },
+    {
+      urls: "turn:global.relay.metered.ca:443",
+      username: TURN_USERNAME,
+      credential: TURN_CREDENTIAL,
+    },
+    {
+      urls: "turns:global.relay.metered.ca:443?transport=tcp",
+      username: TURN_USERNAME,
+      credential: TURN_CREDENTIAL,
+    },
+  ],
 };
 
 const meetingId = (new URLSearchParams(location.search).get("id") || "").toLowerCase();
@@ -98,7 +125,15 @@ function createPeer(id, name, isHost) {
   }
 
   pc.onicecandidate = (e) => {
-    if (e.candidate) socket.emit("signal", { to: id, data: { candidate: e.candidate } });
+    if (e.candidate) {
+      // Debug: "relay" candidates mean the TURN server is working.
+      console.log(`[${id}] local ICE candidate:`, e.candidate.type, e.candidate.protocol);
+      socket.emit("signal", { to: id, data: { candidate: e.candidate } });
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    console.log(`[${id}] ICE state:`, pc.iceConnectionState);
   };
 
   pc.ontrack = (e) => {
@@ -107,6 +142,7 @@ function createPeer(id, name, isHost) {
 
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
+    console.log(`[${id}] Connection state:`, s);
     if (s === "connected") setTileState(id, "");
     else if (s === "connecting") setTileState(id, "Connecting…");
     else if (s === "disconnected") setTileState(id, "Reconnecting…");
