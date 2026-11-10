@@ -430,8 +430,8 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
       if (p.score !== null && p.status !== "pending" && p.status !== "stale") {
         sum += p.score;
         countWithScore++;
-        // Rule: Score >= 60 is Attentive, Score < 60 is Needs Attention
-        if (p.score >= 60) {
+        // Rule: Score >= 70 is Attentive, Score < 70 is Needs Attention
+        if (p.score >= 70) {
           attentive++;
         } else {
           needsAttention++;
@@ -562,7 +562,7 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
       }
     } else {
       // Real score from existing detection system
-      const isAttentive = p.score >= 60;
+      const isAttentive = p.score >= 70;
       if (isAttentive) {
         card.className = "participant-card participant-card--attentive";
         if (avatar) avatar.className = "participant-avatar participant-avatar--attentive";
@@ -576,7 +576,7 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
           barFill.className = "score-bar-fill score-bar-fill--attentive";
           barFill.style.width = `${p.score}%`;
         }
-        // Score is 60 or above: Nudge button must be hidden/disabled
+        // Score is 70 or above: Nudge button must be hidden/disabled
         if (nudgeBtn) {
           nudgeBtn.hidden = true;
           nudgeBtn.disabled = true;
@@ -594,7 +594,7 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
           barFill.className = "score-bar-fill score-bar-fill--needs-attention";
           barFill.style.width = `${p.score}%`;
         }
-        // Score is below 60: Display Nudge button
+        // Score is below 70: Display Nudge button
         if (nudgeBtn) {
           nudgeBtn.hidden = false;
           if (isCooldown) {
@@ -628,7 +628,7 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
       p.score = Math.max(0, Math.min(100, Math.round(Number(scoreData.score) || 0)));
       p.confidence = Math.max(0, Math.min(100, Math.round(Number(scoreData.confidence) || 0)));
       p.low = !!scoreData.low;
-      p.status = p.score >= 60 ? "attentive" : "needs-attention";
+      p.status = p.score >= 70 ? "attentive" : "needs-attention";
       p.lastSeen = Date.now();
     }
     renderCard(p);
