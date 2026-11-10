@@ -11,7 +11,7 @@ const {
   SUPABASE_URL,
   SUPABASE_SERVICE_ROLE_KEY,
   TURN_USERNAME,
-  TURN_CREDENTIAL,
+  TURN_PASSWORD,
   PORT = 3000,
 } = process.env;
 
@@ -19,8 +19,8 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in server/.env");
   process.exit(1);
 }
-if (!TURN_USERNAME || !TURN_CREDENTIAL) {
-  console.warn("TURN_USERNAME / TURN_CREDENTIAL are not set. Calls may fail on restrictive networks.");
+if (!TURN_USERNAME || !TURN_PASSWORD) {
+  console.warn("TURN_USERNAME / TURN_PASSWORD are not set. Calls may fail on restrictive networks.");
 }
 
 console.log(
@@ -71,14 +71,14 @@ app.get("/api/ice", async (req, res) => {
     { urls: "stun:stun.l.google.com:19302" },
   ];
 
-  if (TURN_USERNAME && TURN_CREDENTIAL) {
+  if (TURN_USERNAME && TURN_PASSWORD) {
     for (const urls of [
       "turn:global.relay.metered.ca:80",
       "turn:global.relay.metered.ca:80?transport=tcp",
       "turn:global.relay.metered.ca:443",
       "turns:global.relay.metered.ca:443?transport=tcp",
     ]) {
-      iceServers.push({ urls, username: TURN_USERNAME, credential: TURN_CREDENTIAL });
+      iceServers.push({ urls, username: TURN_USERNAME, credential: TURN_PASSWORD });
     }
   }
 
