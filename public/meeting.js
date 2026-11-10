@@ -17,6 +17,9 @@ let iceConfig = null; // fetched from /api/ice after sign-in
 let localStream = null;
 let leaving = false;
 let stopAttention = null; // cleanup function returned by startAttention
+let attentionStarted = false;
+let wakeLock = null;
+let connBannerShown = false;
 const peers = new Map(); // socketId -> { pc, stream, pending: [] }
 
 /* ---------------- UI helpers ---------------- */
@@ -168,6 +171,8 @@ async function handleSignal({ from, data }) {
 /* ---------------- Leaving ---------------- */
 
 function cleanup() {
+  wakeLock?.release().catch(() => {});
+  wakeLock = null;
   if (stopAttention) {
     stopAttention();
     stopAttention = null;
@@ -213,6 +218,86 @@ copyBtn.addEventListener("click", async () => {
   setTimeout(() => (copyBtn.textContent = "Copy invite link"), 1500);
 });
 window.addEventListener("beforeunload", () => socket?.disconnect());
+
+/* ---------------- Reconnect support (phones) ---------------- */
+
+function setConnectionBanner(text) {
+  if (text) {
+    banner.textContent = text;
+    banner.hidden = false;
+    connBannerShown = true;
+  } else if (connBannerShown) {
+    banner.hidden = true;
+    connBannerShown = false;
+  }
+}
+
+// Keeps the screen awake during a meeting (where the browser supports it)
+async function requestWakeLock() {
+  try {
+    if ("wakeLock" in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => {
+        wakeLock = null;
+      });
+    }
+  } catch {
+    // not supported or denied: ignore
+  }
+}
+
+// Phones stop the camera/mic when the browser is in the background.
+// If the tracks ended, get fresh ones.
+async function ensureLocalMedia() {
+  const tracks = localStream.getTracks();
+  if (!tracks.some((t) => t.readyState === "ended")) return;
+
+  tracks.forEach((t) => t.stop());
+  localStream = await getLocalMedia();
+
+  const localVideo = document.querySelector("#tile-local video");
+  if (localVideo) localVideo.srcObject = localStream;
+
+  micBtn.setAttribute("aria-pressed", "false");
+  micBtn.textContent = "Mute";
+  camBtn.setAttribute("aria-pressed", "false");
+  camBtn.textContent = "Stop video";
+}
+
+// Runs on the first connection and again after every automatic reconnect
+async function joinRoom() {
+  if (leaving) return;
+
+  // After a reconnect the old peer connections are dead: start clean
+  for (const id of [...peers.keys()]) closePeer(id);
+  await ensureLocalMedia();
+
+  socket.emit("join-room", { meetingId }, async (res) => {
+    if (!res?.ok) {
+      leaving = true;
+      cleanup();
+      return showNotice("Can't join", res?.error || "Something went wrong.");
+    }
+    if (res.isHost) endBtn.hidden = false;
+    requestWakeLock();
+
+    // Attention monitoring: students send scores, the host sees the panel.
+    // Started once; the same socket keeps working after a reconnect.
+    if (!attentionStarted) {
+      attentionStarted = true;
+      Promise.resolve(startAttention({ socket, isHost: res.isHost }))
+        .then((stop) => {
+          if (typeof stop === "function") {
+            if (leaving) stop();
+            else stopAttention = stop;
+          }
+        })
+        .catch((err) => console.error("Attention monitoring failed to start:", err));
+    }
+
+    for (const peer of res.peers) await callPeer(peer).catch(console.error);
+  });
+}
 
 /* ---------------- Init ---------------- */
 
@@ -264,10 +349,23 @@ async function init() {
   localStream = await getLocalMedia();
   addTile("local", "You", localStream, true);
 
-  socket = io({ auth: { token } });
+  // Fetch a fresh token on every (re)connect so a long-lived tab never uses an expired one
+  socket = io({
+    auth: (cb) => {
+      supabase.auth
+        .getSession()
+        .then(({ data }) => cb({ token: data.session?.access_token || token }))
+        .catch(() => cb({ token }));
+    },
+  });
 
   socket.on("connect_error", (err) => {
-    showNotice("Connection failed", err.message === "unauthorized" ? "Sign in again and retry." : err.message);
+    if (err.message === "unauthorized" || err.message === "auth failed") {
+      showNotice("Connection failed", "Sign in again and retry.");
+    } else {
+      console.warn("Socket connect error (retrying):", err.message);
+      setConnectionBanner("Connection problem. Retrying…");
+    }
   });
 
   socket.on("peer-joined", ({ id, name, isHost }) => createPeer(id, name, isHost)); // wait for their offer
@@ -278,32 +376,26 @@ async function init() {
     cleanup();
     showNotice("Meeting ended", "The host ended this meeting.");
   });
-  socket.on("disconnect", () => {
-    if (!leaving) showNotice("Disconnected", "You lost the connection to the meeting. Rejoin from the dashboard.");
+  socket.on("disconnect", (reason) => {
+    if (leaving) return;
+    if (reason === "io server disconnect") {
+      showNotice("Disconnected", "The server closed your connection. Rejoin from the dashboard.");
+      return;
+    }
+    // Network drop or the phone put the tab to sleep: Socket.IO retries automatically
+    setConnectionBanner("Connection lost. Reconnecting…");
   });
 
-  socket.once("connect", () => {
-    socket.emit("join-room", { meetingId }, async (res) => {
-      if (!res?.ok) {
-        leaving = true;
-        cleanup();
-        return showNotice("Can't join", res?.error || "Something went wrong.");
-      }
-      if (res.isHost) endBtn.hidden = false;
+  socket.on("connect", () => {
+    setConnectionBanner(null);
+    joinRoom();
+  });
 
-      // Attention monitoring: students send scores, the host sees the panel.
-      // startAttention may return a promise (student side) or a function (host side).
-      Promise.resolve(startAttention({ socket, isHost: res.isHost }))
-        .then((stop) => {
-          if (typeof stop === "function") {
-            if (leaving) stop();
-            else stopAttention = stop;
-          }
-        })
-        .catch((err) => console.error("Attention monitoring failed to start:", err));
-
-      for (const peer of res.peers) await callPeer(peer).catch(console.error);
-    });
+  // Coming back to the tab: reconnect right away and keep the screen awake
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || leaving) return;
+    if (socket && !socket.connected) socket.connect();
+    requestWakeLock();
   });
 }
 
