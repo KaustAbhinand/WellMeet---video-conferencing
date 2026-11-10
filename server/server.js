@@ -136,7 +136,10 @@ const rooms = new Map();
 io.use(async (socket, next) => {
   try {
     const user = await getUserFromToken(socket.handshake.auth?.token);
-    if (!user) return next(new Error("unauthorized"));
+    if (!user) {
+      console.log("auth rejected: bad or expired token");
+      return next(new Error("unauthorized"));
+    }
 
     const { data: profile } = await supabase
       .from("users")
@@ -148,6 +151,7 @@ io.use(async (socket, next) => {
     socket.data.name = profile?.username || user.email?.split("@")[0] || "Guest";
     next();
   } catch (err) {
+    console.log("auth error", err);
     next(new Error("auth failed"));
   }
 });
@@ -155,6 +159,7 @@ io.use(async (socket, next) => {
 function leaveRoom(socket) {
   const id = socket.data.meetingId;
   if (!id) return;
+  console.log("leaveRoom", socket.id, socket.data.name, id);
   socket.data.meetingId = null;
 
   const room = rooms.get(id);
@@ -167,11 +172,21 @@ function leaveRoom(socket) {
 }
 
 io.on("connection", (socket) => {
+  console.log("connected", socket.id, socket.data.name);
+
   socket.on("join-room", async ({ meetingId } = {}, ack) => {
-    if (typeof ack !== "function") return;
+    console.log("join-room request", socket.id, socket.data.name, meetingId);
+
+    if (typeof ack !== "function") return console.log("join-room: no ack function");
     const id = String(meetingId ?? "").toLowerCase();
-    if (!ID_RE.test(id)) return ack({ ok: false, error: "Invalid meeting ID." });
-    if (socket.data.meetingId) return ack({ ok: false, error: "Already in a meeting." });
+    if (!ID_RE.test(id)) {
+      console.log("join-room: invalid id", id);
+      return ack({ ok: false, error: "Invalid meeting ID." });
+    }
+    if (socket.data.meetingId) {
+      console.log("join-room: already in meeting", socket.data.meetingId);
+      return ack({ ok: false, error: "Already in a meeting." });
+    }
 
     const { data: meeting, error } = await supabase
       .from("meetings")
@@ -179,12 +194,25 @@ io.on("connection", (socket) => {
       .eq("meeting_id", id)
       .maybeSingle();
 
-    if (error) return ack({ ok: false, error: "Could not look up the meeting." });
-    if (!meeting) return ack({ ok: false, error: "Meeting not found." });
-    if (meeting.status === "ended") return ack({ ok: false, error: "This meeting has ended." });
+    if (error) {
+      console.log("join-room: supabase error", error);
+      return ack({ ok: false, error: "Could not look up the meeting." });
+    }
+    if (!meeting) {
+      console.log("join-room: meeting not found", id);
+      return ack({ ok: false, error: "Meeting not found." });
+    }
+    if (meeting.status === "ended") {
+      console.log("join-room: meeting ended", id);
+      return ack({ ok: false, error: "This meeting has ended." });
+    }
 
     const room = rooms.get(id) ?? new Map();
-    if (room.size >= MAX_PEERS) return ack({ ok: false, error: "This meeting is full." });
+    console.log("join-room: room size before join", room.size);
+    if (room.size >= MAX_PEERS) {
+      console.log("join-room: room full");
+      return ack({ ok: false, error: "This meeting is full." });
+    }
 
     const isHost = meeting.host_id === socket.data.user.id;
     const peers = [...room.entries()].map(([pid, p]) => ({ id: pid, name: p.name, isHost: p.isHost }));
@@ -193,6 +221,7 @@ io.on("connection", (socket) => {
     rooms.set(id, room);
     socket.data.meetingId = id;
     socket.join(id);
+    console.log("join-room: joined", id, socket.data.name, "isHost:", isHost, "room size now", room.size);
 
     // Existing members just prepare to answer; the newcomer sends the offers.
     socket.to(id).emit("peer-joined", { id: socket.id, name: socket.data.name, isHost });
@@ -245,7 +274,10 @@ io.on("connection", (socket) => {
   });
 
   socket.on("leave-room", () => leaveRoom(socket));
-  socket.on("disconnect", () => leaveRoom(socket));
+  socket.on("disconnect", (reason) => {
+    console.log("disconnect", socket.id, socket.data.name, reason);
+    leaveRoom(socket);
+  });
 });
 
 server.listen(PORT, () => console.log(`Running on http://localhost:${PORT}`));
