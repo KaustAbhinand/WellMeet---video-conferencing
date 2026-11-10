@@ -266,6 +266,65 @@ io.on("connection", (socket) => {
     }
   });
 
+  // host -> specific participant: nudge reminder
+  socket.on("nudge-participant", ({ targetId } = {}, ack) => {
+    if (typeof ack !== "function") ack = () => {};
+    const meetingId = socket.data.meetingId;
+    if (!meetingId) {
+      return ack({ ok: false, error: "Not in a meeting." });
+    }
+
+    const room = rooms.get(meetingId);
+    if (!room) {
+      return ack({ ok: false, error: "Meeting room not found." });
+    }
+
+    const sender = room.get(socket.id);
+    if (!sender || !sender.isHost) {
+      return ack({ ok: false, error: "Unauthorized: only the meeting host can send nudges." });
+    }
+
+    if (!targetId || typeof targetId !== "string") {
+      return ack({ ok: false, error: "Invalid participant ID." });
+    }
+
+    if (targetId === socket.id) {
+      return ack({ ok: false, error: "Cannot nudge yourself." });
+    }
+
+    const target = room.get(targetId);
+    if (!target) {
+      return ack({ ok: false, error: "Participant is no longer in the meeting." });
+    }
+
+    // Cooldown check on backend (60 seconds per target from this host)
+    if (!socket.data.nudgeCooldowns) {
+      socket.data.nudgeCooldowns = new Map();
+    }
+    const now = Date.now();
+    const lastNudge = socket.data.nudgeCooldowns.get(targetId) || 0;
+    const elapsed = now - lastNudge;
+    if (elapsed < 60000) {
+      const remainingSecs = Math.ceil((60000 - elapsed) / 1000);
+      return ack({
+        ok: false,
+        error: `Please wait ${remainingSecs}s before nudging ${target.name} again.`,
+        cooldownRemaining: remainingSecs,
+      });
+    }
+
+    socket.data.nudgeCooldowns.set(targetId, now);
+
+    const message = "You seem to be losing focus. Please pay attention to the meeting.";
+    io.to(targetId).emit("nudge", {
+      from: sender.name,
+      message,
+      timestamp: now,
+    });
+
+    ack({ ok: true, targetId, targetName: target.name });
+  });
+
   socket.on("end-meeting", async () => {
     const id = socket.data.meetingId;
     if (!id || !rooms.get(id)?.get(socket.id)?.isHost) return;

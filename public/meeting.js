@@ -9,6 +9,7 @@ const micBtn = $("mic-btn");
 const camBtn = $("cam-btn");
 const leaveBtn = $("leave-btn");
 const endBtn = $("end-btn");
+const attentionBtn = $("attention-btn");
 const copyBtn = $("copy-btn");
 const banner = $("banner");
 
@@ -174,9 +175,14 @@ async function handleSignal({ from, data }) {
 
 /* ---------------- Leaving ---------------- */
 
+let nudgeDismissTimer = null;
+
 function cleanup() {
   wakeLock?.release().catch(() => {});
   wakeLock = null;
+  if (nudgeDismissTimer) clearTimeout(nudgeDismissTimer);
+  const nudgeBanner = $("nudge-banner");
+  if (nudgeBanner) nudgeBanner.hidden = true;
   if (stopAttention) {
     stopAttention();
     stopAttention = null;
@@ -283,14 +289,19 @@ async function joinRoom() {
       return showNotice("Can't join", res?.error || "Something went wrong.");
     }
     selfIsHost = !!res.isHost;
-    if (res.isHost) endBtn.hidden = false;
+    if (res.isHost) {
+      endBtn.hidden = false;
+      if (attentionBtn) attentionBtn.hidden = false;
+    } else {
+      if (attentionBtn) attentionBtn.hidden = true;
+    }
     requestWakeLock();
 
     // Attention monitoring: students send scores, the host sees the panel.
     // Started once; the same socket keeps working after a reconnect.
     if (!attentionStarted) {
       attentionStarted = true;
-      Promise.resolve(startAttention({ socket, isHost: res.isHost }))
+      Promise.resolve(startAttention({ socket, isHost: res.isHost, peers: res.peers }))
         .then((stop) => {
           if (typeof stop === "function") {
             if (leaving) stop();
@@ -298,6 +309,8 @@ async function joinRoom() {
           }
         })
         .catch((err) => console.error("Attention monitoring failed to start:", err));
+    } else if (res.isHost && stopAttention?.syncPeers) {
+      stopAttention.syncPeers(res.peers);
     }
 
     for (const peer of res.peers) await callPeer(peer).catch(console.error);
@@ -380,6 +393,38 @@ async function init() {
     leaving = true;
     cleanup();
     showNotice("Meeting ended", "The host ended this meeting.");
+  });
+
+  function showNudgeNotification(message, senderName) {
+    const banner = $("nudge-banner");
+    const msgEl = $("nudge-message");
+    const senderEl = $("nudge-sender");
+    const dismissBtn = $("nudge-dismiss-btn");
+    if (!banner || !msgEl) return;
+
+    msgEl.textContent =
+      message || "You seem to be losing focus. Please pay attention to the meeting.";
+    if (senderEl) senderEl.textContent = senderName ? `from ${senderName}` : "from Host";
+
+    if (nudgeDismissTimer) clearTimeout(nudgeDismissTimer);
+    banner.classList.remove("nudge-banner--fadeout");
+    banner.hidden = false;
+
+    function dismiss() {
+      if (nudgeDismissTimer) clearTimeout(nudgeDismissTimer);
+      banner.classList.add("nudge-banner--fadeout");
+      setTimeout(() => {
+        banner.hidden = true;
+        banner.classList.remove("nudge-banner--fadeout");
+      }, 300);
+    }
+
+    if (dismissBtn) dismissBtn.onclick = dismiss;
+    nudgeDismissTimer = setTimeout(dismiss, 8000);
+  }
+
+  socket.on("nudge", ({ message, from } = {}) => {
+    showNudgeNotification(message, from);
   });
   socket.on("disconnect", (reason) => {
     if (leaving) return;

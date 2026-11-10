@@ -80,30 +80,6 @@ function injectStyles() {
       box-shadow: 0 4px 16px rgba(0,0,0,.25);
     }
     .att-alert[hidden] { display: none; }
-    .att-panel {
-      position: fixed; top: 80px; right: 16px; z-index: 20; width: 270px;
-      max-height: 60vh; overflow-y: auto; padding: 12px; border-radius: 12px;
-      background: #fff; color: #232333; border: 1px solid #e5e5ea;
-      box-shadow: 0 6px 24px rgba(0,0,0,.18);
-      font: 14px "Segoe UI", system-ui, Arial, sans-serif;
-    }
-    .att-panel h3 { margin: 0 0 8px; font-size: 14px; }
-    .att-empty { margin: 0; color: #777783; font-size: 13px; }
-    .att-row {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 8px; padding: 7px 0; border-top: 1px solid #e5e5ea;
-    }
-    .att-row:first-of-type { border-top: 0; }
-    .att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .att-value { font-weight: 700; flex-shrink: 0; }
-    .att-value--good { color: #1e8e3e; }
-    .att-value--mid { color: #b26a00; }
-    .att-value--bad { color: #d93025; }
-    .att-value--muted { color: #777783; font-weight: 500; }
-    .att-badge {
-      padding: 2px 8px; border-radius: 6px; background: #fdecea;
-      color: #d93025; font-size: 12px; font-weight: 600; flex-shrink: 0;
-    }
   `;
   document.head.appendChild(style);
 }
@@ -270,108 +246,495 @@ async function startStudentMonitor(socket, videoEl) {
   };
 }
 
-/* ---------------- Host side ---------------- */
+/* ---------------- Toast Notification Utility ---------------- */
 
-function startHostPanel(socket) {
-  injectStyles();
+export function showToast({ type = "info", title = "", message = "", duration = 4000 } = {}) {
+  const container = document.getElementById("toast-container");
+  if (!container) return;
 
-  const panel = document.createElement("aside");
-  panel.className = "att-panel";
-  panel.innerHTML = "<h3>Attention</h3>";
-  const empty = document.createElement("p");
-  empty.className = "att-empty";
-  empty.textContent = "Waiting for students…";
-  panel.appendChild(empty);
-  document.body.appendChild(panel);
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${type}`;
+  toast.setAttribute("role", "status");
 
-  const rows = new Map(); // socket id -> { row, valueEl, badgeEl, lastSeen }
+  const iconSvg =
+    type === "success"
+      ? '<svg class="toast__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>'
+      : '<svg class="toast__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
 
-  function ensureRow(id, name) {
-    let entry = rows.get(id);
-    if (entry) return entry;
+  const titleHtml = title ? `<div class="toast__title">${title}</div>` : "";
+  toast.innerHTML = `
+    ${iconSvg}
+    <div class="toast__body">
+      ${titleHtml}
+      <p class="toast__message"></p>
+    </div>
+  `;
+  const msgEl = toast.querySelector(".toast__message");
+  if (msgEl) msgEl.textContent = message;
 
-    const row = document.createElement("div");
-    row.className = "att-row";
+  container.appendChild(toast);
 
-    const nameEl = document.createElement("span");
-    nameEl.className = "att-name";
-    nameEl.textContent = name; // textContent: names are user-supplied
+  let removed = false;
+  const remove = () => {
+    if (removed) return;
+    removed = true;
+    toast.classList.add("toast--out");
+    setTimeout(() => toast.remove(), 250);
+  };
 
-    const right = document.createElement("span");
-    right.style.display = "flex";
-    right.style.alignItems = "center";
-    right.style.gap = "8px";
+  const timer = setTimeout(remove, duration);
+  toast.addEventListener("click", () => {
+    clearTimeout(timer);
+    remove();
+  });
+}
 
-    const badgeEl = document.createElement("span");
-    badgeEl.className = "att-badge";
-    badgeEl.textContent = "Check manually";
-    badgeEl.hidden = true;
+/* ---------------- Host side (Attention Dashboard) ---------------- */
 
-    const valueEl = document.createElement("span");
-    valueEl.className = "att-value att-value--muted";
-    valueEl.textContent = "—";
+function startHostDashboard({ socket, initialPeers = [] } = {}) {
+  const drawer = document.getElementById("attention-drawer");
+  const backdrop = document.getElementById("attention-backdrop");
+  const attentionBtn = document.getElementById("attention-btn");
+  const closeBtn = document.getElementById("attention-close-btn");
+  const alertDot = document.getElementById("attention-alert-dot");
 
-    right.append(badgeEl, valueEl);
-    row.append(nameEl, right);
-    panel.appendChild(row);
+  const statTotal = document.getElementById("stat-total");
+  const statAvg = document.getElementById("stat-avg");
+  const statAttentive = document.getElementById("stat-attentive");
+  const statNeedsAtt = document.getElementById("stat-needs-att");
+  const rosterCount = document.getElementById("roster-count");
+  const rosterList = document.getElementById("roster-list");
+  const emptyEl = document.getElementById("attention-empty");
 
-    entry = { row, valueEl, badgeEl, lastSeen: 0 };
-    rows.set(id, entry);
-    empty.hidden = true;
-    return entry;
+  // Show host-only Attention Dashboard button
+  if (attentionBtn) {
+    attentionBtn.hidden = false;
   }
 
-  function onAttention(p) {
-    if (!p || !p.id) return;
-    const entry = ensureRow(p.id, p.name || "Student");
-    entry.lastSeen = Date.now();
-    entry.badgeEl.hidden = !p.low;
-    entry.valueEl.textContent = String(p.score);
-    entry.valueEl.className =
-      "att-value " +
-      (p.low
-        ? "att-value--muted"
-        : p.score >= 70
-        ? "att-value--good"
-        : p.score >= 40
-        ? "att-value--mid"
-        : "att-value--bad");
+  function toggleDrawer(force) {
+    if (!drawer) return;
+    const shouldOpen = typeof force === "boolean" ? force : drawer.hidden;
+    drawer.hidden = !shouldOpen;
+    if (backdrop) backdrop.hidden = !shouldOpen;
+    if (attentionBtn) {
+      attentionBtn.setAttribute("aria-expanded", String(shouldOpen));
+      attentionBtn.classList.toggle("btn--active", shouldOpen);
+    }
+  }
+
+  function onAttentionBtnClick() {
+    toggleDrawer();
+  }
+
+  function onCloseBtnClick() {
+    toggleDrawer(false);
+  }
+
+  function onBackdropClick() {
+    toggleDrawer(false);
+  }
+
+  function onKeyDown(e) {
+    if (e.key === "Escape" && drawer && !drawer.hidden) {
+      toggleDrawer(false);
+    }
+  }
+
+  attentionBtn?.addEventListener("click", onAttentionBtnClick);
+  closeBtn?.addEventListener("click", onCloseBtnClick);
+  backdrop?.addEventListener("click", onBackdropClick);
+  window.addEventListener("keydown", onKeyDown);
+
+  // Participant state: socketId -> { id, name, score, confidence, low, status, lastSeen }
+  // Status: "pending" | "attentive" | "needs-attention" | "stale"
+  const participants = new Map();
+  const STALE_MS = 8000;
+
+  // Nudge cooldown tracking: targetId -> { until: number, timer: number }
+  const nudgeCooldowns = new Map();
+
+  function startCooldown(targetId, seconds = 60) {
+    if (nudgeCooldowns.has(targetId)) {
+      clearInterval(nudgeCooldowns.get(targetId).timer);
+    }
+
+    const until = Date.now() + seconds * 1000;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      const card = document.getElementById(`participant-${targetId}`);
+      const btn = card?.querySelector(".btn-nudge");
+      const textEl = card?.querySelector(".btn-nudge__text");
+
+      if (remaining <= 0) {
+        clearInterval(timer);
+        nudgeCooldowns.delete(targetId);
+        const cur = participants.get(targetId);
+        if (cur) renderCard(cur);
+        return;
+      }
+
+      if (btn && textEl) {
+        btn.disabled = true;
+        textEl.textContent = `Nudge (${remaining}s)`;
+      }
+    };
+
+    const timer = setInterval(tick, 1000);
+    nudgeCooldowns.set(targetId, { until, timer });
+    tick();
+  }
+
+  function onNudgeClick(targetId, targetName, btn, textEl) {
+    if (!btn || btn.disabled) return;
+
+    btn.disabled = true;
+    btn.classList.add("btn-nudge--loading");
+    if (textEl) textEl.textContent = "Sending…";
+
+    socket.emit("nudge-participant", { targetId }, (res) => {
+      btn.classList.remove("btn-nudge--loading");
+
+      if (!res?.ok) {
+        showToast({
+          type: "error",
+          title: "Nudge Failed",
+          message: res?.error || "Could not deliver nudge.",
+        });
+        if (res?.cooldownRemaining) {
+          startCooldown(targetId, res?.cooldownRemaining);
+        } else {
+          const cur = participants.get(targetId);
+          if (cur) renderCard(cur);
+        }
+        return;
+      }
+
+      showToast({
+        type: "success",
+        title: "Nudge Sent",
+        message: `Nudge delivered to ${targetName || res.targetName || "participant"}.`,
+      });
+
+      startCooldown(targetId, 60);
+    });
+  }
+
+  function updateStats() {
+    const total = participants.size;
+    let sum = 0;
+    let countWithScore = 0;
+    let attentive = 0;
+    let needsAttention = 0;
+
+    for (const p of participants.values()) {
+      if (p.score !== null && p.status !== "pending" && p.status !== "stale") {
+        sum += p.score;
+        countWithScore++;
+        // Rule: Score >= 60 is Attentive, Score < 60 is Needs Attention
+        if (p.score >= 60) {
+          attentive++;
+        } else {
+          needsAttention++;
+        }
+      }
+    }
+
+    if (statTotal) statTotal.textContent = String(total);
+    if (rosterCount) rosterCount.textContent = String(total);
+    if (statAvg) statAvg.textContent = countWithScore > 0 ? `${Math.round(sum / countWithScore)}%` : "—";
+    if (statAttentive) statAttentive.textContent = String(attentive);
+    if (statNeedsAtt) statNeedsAtt.textContent = String(needsAttention);
+    if (alertDot) alertDot.hidden = needsAttention === 0;
+    if (emptyEl) emptyEl.hidden = total > 0;
+  }
+
+  function renderCard(p) {
+    if (!rosterList) return;
+    let card = document.getElementById(`participant-${p.id}`);
+    if (!card) {
+      card = document.createElement("div");
+      card.id = `participant-${p.id}`;
+      card.className = "participant-card";
+
+      card.innerHTML = `
+        <div class="participant-card__top">
+          <div class="participant-card__user">
+            <div class="participant-avatar"></div>
+            <div class="participant-card__details">
+              <span class="participant-name"></span>
+              <span class="participant-meta"></span>
+            </div>
+          </div>
+          <span class="status-badge">
+            <span class="status-badge__dot"></span>
+            <span class="status-badge__text"></span>
+          </span>
+        </div>
+        <div class="participant-card__score">
+          <span class="score-label">Attention Score</span>
+          <div class="score-action-group">
+            <span class="score-value"></span>
+            <button class="btn-nudge" type="button" aria-label="Nudge participant" title="Send focus reminder" hidden>
+              <svg class="btn-nudge__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+              </svg>
+              <span class="btn-nudge__text">Nudge</span>
+            </button>
+          </div>
+        </div>
+        <div class="score-bar-track">
+          <div class="score-bar-fill"></div>
+        </div>
+      `;
+
+      const newNudgeBtn = card.querySelector(".btn-nudge");
+      const newNudgeText = card.querySelector(".btn-nudge__text");
+      newNudgeBtn?.addEventListener("click", () => {
+        const cur = participants.get(p.id);
+        onNudgeClick(p.id, cur?.name || p.name, newNudgeBtn, newNudgeText);
+      });
+
+      rosterList.appendChild(card);
+    }
+
+    const avatar = card.querySelector(".participant-avatar");
+    const nameEl = card.querySelector(".participant-name");
+    const metaEl = card.querySelector(".participant-meta");
+    const badge = card.querySelector(".status-badge");
+    const badgeText = card.querySelector(".status-badge__text");
+    const scoreVal = card.querySelector(".score-value");
+    const barFill = card.querySelector(".score-bar-fill");
+    const nudgeBtn = card.querySelector(".btn-nudge");
+    const nudgeText = card.querySelector(".btn-nudge__text");
+
+    if (nameEl) nameEl.textContent = p.name || "Participant";
+    if (avatar) avatar.textContent = (p.name || "P").charAt(0).toUpperCase();
+
+    // Meta notes
+    if (metaEl) {
+      if (p.low) {
+        metaEl.innerHTML = '<span class="tag-warn">Low visibility / Check camera</span>';
+      } else if (p.status === "stale") {
+        metaEl.innerHTML = '<span style="color:var(--muted)">No recent signal</span>';
+      } else {
+        metaEl.textContent = "";
+      }
+    }
+
+    const cd = nudgeCooldowns.get(p.id);
+    const isCooldown = cd && cd.until > Date.now();
+    const remaining = isCooldown ? Math.max(0, Math.ceil((cd.until - Date.now()) / 1000)) : 0;
+
+    if (p.status === "pending") {
+      card.className = "participant-card participant-card--pending";
+      if (avatar) avatar.className = "participant-avatar";
+      if (badge) badge.className = "status-badge status-badge--pending";
+      if (badgeText) badgeText.textContent = "Waiting for data";
+      if (scoreVal) {
+        scoreVal.className = "score-value score-value--muted";
+        scoreVal.textContent = "—";
+      }
+      if (barFill) {
+        barFill.className = "score-bar-fill score-bar-fill--pending";
+        barFill.style.width = "0%";
+      }
+      if (nudgeBtn) {
+        nudgeBtn.hidden = true;
+        nudgeBtn.disabled = true;
+      }
+    } else if (p.status === "stale") {
+      card.className = "participant-card participant-card--pending";
+      if (avatar) avatar.className = "participant-avatar";
+      if (badge) badge.className = "status-badge status-badge--stale";
+      if (badgeText) badgeText.textContent = "Unavailable";
+      if (scoreVal) {
+        scoreVal.className = "score-value score-value--muted";
+        scoreVal.textContent = "—";
+      }
+      if (barFill) {
+        barFill.className = "score-bar-fill score-bar-fill--pending";
+        barFill.style.width = "0%";
+      }
+      if (nudgeBtn) {
+        nudgeBtn.hidden = true;
+        nudgeBtn.disabled = true;
+      }
+    } else {
+      // Real score from existing detection system
+      const isAttentive = p.score >= 60;
+      if (isAttentive) {
+        card.className = "participant-card participant-card--attentive";
+        if (avatar) avatar.className = "participant-avatar participant-avatar--attentive";
+        if (badge) badge.className = "status-badge status-badge--attentive";
+        if (badgeText) badgeText.textContent = "Attentive";
+        if (scoreVal) {
+          scoreVal.className = "score-value score-value--attentive";
+          scoreVal.textContent = `${p.score} / 100`;
+        }
+        if (barFill) {
+          barFill.className = "score-bar-fill score-bar-fill--attentive";
+          barFill.style.width = `${p.score}%`;
+        }
+        // Score is 60 or above: Nudge button must be hidden/disabled
+        if (nudgeBtn) {
+          nudgeBtn.hidden = true;
+          nudgeBtn.disabled = true;
+        }
+      } else {
+        card.className = "participant-card participant-card--needs-attention";
+        if (avatar) avatar.className = "participant-avatar participant-avatar--needs-attention";
+        if (badge) badge.className = "status-badge status-badge--needs-attention";
+        if (badgeText) badgeText.textContent = "Needs Attention";
+        if (scoreVal) {
+          scoreVal.className = "score-value score-value--needs-attention";
+          scoreVal.textContent = `${p.score} / 100`;
+        }
+        if (barFill) {
+          barFill.className = "score-bar-fill score-bar-fill--needs-attention";
+          barFill.style.width = `${p.score}%`;
+        }
+        // Score is below 60: Display Nudge button
+        if (nudgeBtn) {
+          nudgeBtn.hidden = false;
+          if (isCooldown) {
+            nudgeBtn.disabled = true;
+            if (nudgeText) nudgeText.textContent = `Nudge (${remaining}s)`;
+          } else if (!nudgeBtn.classList.contains("btn-nudge--loading")) {
+            nudgeBtn.disabled = false;
+            if (nudgeText) nudgeText.textContent = "Nudge";
+          }
+        }
+      }
+    }
+  }
+
+  function addOrUpdateParticipant(id, name, scoreData = null) {
+    let p = participants.get(id);
+    if (!p) {
+      p = {
+        id,
+        name: name || "Participant",
+        score: null,
+        confidence: null,
+        low: false,
+        status: "pending",
+        lastSeen: null,
+      };
+      participants.set(id, p);
+    }
+    if (name) p.name = name;
+    if (scoreData) {
+      p.score = Math.max(0, Math.min(100, Math.round(Number(scoreData.score) || 0)));
+      p.confidence = Math.max(0, Math.min(100, Math.round(Number(scoreData.confidence) || 0)));
+      p.low = !!scoreData.low;
+      p.status = p.score >= 60 ? "attentive" : "needs-attention";
+      p.lastSeen = Date.now();
+    }
+    renderCard(p);
+    updateStats();
+  }
+
+  function removeParticipant(id) {
+    if (nudgeCooldowns.has(id)) {
+      clearInterval(nudgeCooldowns.get(id).timer);
+      nudgeCooldowns.delete(id);
+    }
+    const card = document.getElementById(`participant-${id}`);
+    if (card) card.remove();
+    participants.delete(id);
+    updateStats();
+  }
+
+  function syncPeers(peersList = []) {
+    const activeIds = new Set(peersList.filter((p) => p && !p.isHost).map((p) => p.id));
+    for (const id of [...participants.keys()]) {
+      if (!activeIds.has(id)) {
+        removeParticipant(id);
+      }
+    }
+    for (const peer of peersList) {
+      if (!peer || peer.isHost) continue;
+      addOrUpdateParticipant(peer.id, peer.name);
+    }
+    updateStats();
+  }
+
+  // Populate initial peers
+  if (Array.isArray(initialPeers)) {
+    syncPeers(initialPeers);
+  }
+
+  function onAttention(payload) {
+    if (!payload || !payload.id) return;
+    addOrUpdateParticipant(payload.id, payload.name, payload);
+  }
+
+  function onPeerJoined(peer) {
+    if (!peer || !peer.id || peer.isHost) return;
+    addOrUpdateParticipant(peer.id, peer.name);
   }
 
   function onPeerLeft({ id } = {}) {
-    const entry = rows.get(id);
-    if (!entry) return;
-    entry.row.remove();
-    rows.delete(id);
-    empty.hidden = rows.size > 0;
+    if (!id) return;
+    removeParticipant(id);
   }
 
   socket.on("attention", onAttention);
+  socket.on("peer-joined", onPeerJoined);
   socket.on("peer-left", onPeerLeft);
 
-  // mark rows with no recent update
   const staleTimer = setInterval(() => {
     const now = Date.now();
-    for (const entry of rows.values()) {
-      if (entry.lastSeen && now - entry.lastSeen > STALE_MS) {
-        entry.valueEl.textContent = "no data";
-        entry.valueEl.className = "att-value att-value--muted";
-        entry.badgeEl.hidden = true;
+    let changed = false;
+    for (const p of participants.values()) {
+      if (p.lastSeen && p.status !== "stale" && now - p.lastSeen > STALE_MS) {
+        p.status = "stale";
+        renderCard(p);
+        changed = true;
       }
     }
+    if (changed) updateStats();
   }, 2000);
 
-  return function stop() {
+  updateStats();
+
+  const stop = function stop() {
     clearInterval(staleTimer);
+    for (const { timer } of nudgeCooldowns.values()) {
+      clearInterval(timer);
+    }
+    nudgeCooldowns.clear();
+
     socket.off("attention", onAttention);
+    socket.off("peer-joined", onPeerJoined);
     socket.off("peer-left", onPeerLeft);
-    panel.remove();
+
+    attentionBtn?.removeEventListener("click", onAttentionBtnClick);
+    closeBtn?.removeEventListener("click", onCloseBtnClick);
+    backdrop?.removeEventListener("click", onBackdropClick);
+    window.removeEventListener("keydown", onKeyDown);
+
+    if (attentionBtn) {
+      attentionBtn.hidden = true;
+      attentionBtn.classList.remove("btn--active");
+      attentionBtn.setAttribute("aria-expanded", "false");
+    }
+    if (drawer) drawer.hidden = true;
+    if (backdrop) backdrop.hidden = true;
+    for (const p of participants.values()) {
+      document.getElementById(`participant-${p.id}`)?.remove();
+    }
+    participants.clear();
   };
+
+  stop.syncPeers = syncPeers;
+  return stop;
 }
 
 /* ---------------- Entry point ---------------- */
 
-export function startAttention({ socket, isHost, videoEl } = {}) {
+export function startAttention({ socket, isHost, videoEl, peers = [] } = {}) {
   if (!socket) throw new Error("startAttention: socket is required");
-  return isHost ? startHostPanel(socket) : startStudentMonitor(socket, videoEl);
+  return isHost ? startHostDashboard({ socket, initialPeers: peers }) : startStudentMonitor(socket, videoEl);
 }

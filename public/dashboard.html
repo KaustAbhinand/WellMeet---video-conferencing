@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -448,193 +449,178 @@
 
 <body>
 
-<div class="layout">
+    <div class="layout">
 
-    <!-- Sidebar -->
-    <aside class="sidebar">
+        <!-- Sidebar -->
+        <aside class="sidebar">
 
-        <div class="brand">Meet.</div>
+            <div class="brand">Meet.</div>
 
-        <nav class="nav">
-            <a href="dashboard.html" class="active">
-                <span class="nav-icon">▦</span>
-                <span>Dashboard</span>
-            </a>
-
-            <a href="#" id="host-nav">
-                <span class="nav-icon">▣</span>
-                <span>Host a Meeting</span>
-            </a>
-
-            <a href="#" id="create-nav">
-                <span class="nav-icon">＋</span>
-                <span>Create a Meeting</span>
-            </a>
-        </nav>
-
-        <div class="sidebar-bottom">
             <nav class="nav">
-                <a href="#" id="settings-nav">
-                    <span class="nav-icon">⚙</span>
-                    <span>Settings</span>
+                <a href="dashboard.html" class="active">
+                    <span class="nav-icon">▦</span>
+                    <span>Dashboard</span>
                 </a>
 
-                <a href="#" id="logout-btn">
-                    <span class="nav-icon">↪</span>
-                    <span>Sign out</span>
+                <a href="#" id="host-nav">
+                    <span class="nav-icon">▣</span>
+                    <span>Host a Meeting</span>
+                </a>
+
+                <a href="#" id="create-nav">
+                    <span class="nav-icon">＋</span>
+                    <span>Create a Meeting</span>
                 </a>
             </nav>
-        </div>
 
-    </aside>
+            <div class="sidebar-bottom">
+                <nav class="nav">
+                    <a href="#" id="settings-nav">
+                        <span class="nav-icon">⚙</span>
+                        <span>Settings</span>
+                    </a>
 
-    <!-- Main content -->
-    <main class="main">
-
-        <!-- Topbar -->
-        <header class="topbar">
-            <div class="topbar__label">Dashboard</div>
-
-            <div class="profile">
-                <span id="profile-username">Loading...</span>
-                <div class="profile__avatar" id="profile-avatar">?</div>
+                    <a href="#" id="logout-btn">
+                        <span class="nav-icon">↪</span>
+                        <span>Sign out</span>
+                    </a>
+                </nav>
             </div>
-        </header>
 
-        <!-- Dashboard -->
-        <div class="content">
+        </aside>
 
-            <section class="welcome">
-                <div>
-                    <div class="welcome__greeting">Your workspace</div>
+        <!-- Main content -->
+        <main class="main">
 
-                    <h1>
-                        Hello, <span id="username">there</span>!
-                    </h1>
+            <!-- Topbar -->
+            <header class="topbar">
+                <div class="topbar__label">Dashboard</div>
 
-                    <p class="welcome__description">
-                        Ready to connect? Start a meeting or schedule one.
-                    </p>
+                <div class="profile">
+                    <span id="profile-username">Loading...</span>
+                    <div class="profile__avatar" id="profile-avatar">?</div>
                 </div>
-            </section>
+            </header>
 
-            <!-- Meeting options -->
-            <section class="section">
+            <!-- Dashboard -->
+            <div class="content">
 
-                <h2 class="section__heading">Meetings</h2>
+                <section class="welcome">
+                    <div>
+                        <div class="welcome__greeting">Your workspace</div>
 
-                <div class="meeting-options">
+                        <h1>
+                            Hello, <span id="username">there</span>!
+                        </h1>
 
-                    <!-- Host a meeting -->
-                    <article class="meeting-card">
+                        <p class="welcome__description">
+                            Ready to connect? Start a meeting or schedule one.
+                        </p>
+                    </div>
+                </section>
 
-                        <div class="meeting-card__icon">▣</div>
+                <!-- Meeting options -->
+                <section class="section">
 
-                        <h3>Host a meeting</h3>
+                    <h2 class="section__heading">Meetings</h2>
+
+                    <div class="meeting-options">
+
+                        <!-- Host a meeting -->
+                        <article class="meeting-card">
+
+                            <div class="meeting-card__icon">▣</div>
+
+                            <h3>Host a meeting</h3>
+
+                            <p>
+                                Start an instant meeting and invite others
+                                to join you.
+                            </p>
+
+                            <button class="meeting-card__button" id="host-meeting-btn" type="button">
+                                Start meeting <span>→</span>
+                            </button>
+
+                        </article>
+
+                        <!-- Create a meeting -->
+                        <article class="meeting-card">
+
+                            <div class="meeting-card__icon">＋</div>
+
+                            <h3>Create a meeting</h3>
+
+                            <p>
+                                Set up a meeting, configure its details
+                                and prepare to invite participants.
+                            </p>
+
+                            <button class="meeting-card__button" id="create-meeting-btn" type="button">
+                                Create meeting <span>→</span>
+                            </button>
+
+                        </article>
+
+                    </div>
+
+                </section>
+
+                <!-- Join a meeting -->
+                <section class="section">
+
+                    <h2 class="section__heading">Join a meeting</h2>
+
+                    <form class="join-row" id="join-form" novalidate>
+                        <input id="join-input" type="text" placeholder="Meeting ID or invite link" autocomplete="off"
+                            aria-label="Meeting ID or invite link">
+                        <button class="meeting-card__button" type="submit">Join</button>
+                    </form>
+                    <p class="form-error" id="join-error" role="alert"></p>
+
+                </section>
+
+                <!-- Future meeting area -->
+                <section class="section">
+
+                    <h2 class="section__heading">Your meetings</h2>
+
+                    <div class="empty-state">
+
+                        <div class="empty-state__icon">▤</div>
+
+                        <h3>No meetings yet</h3>
 
                         <p>
-                            Start an instant meeting and invite others
-                            to join you.
+                            Your meetings will appear here once you create one.
                         </p>
 
-                        <button
-                            class="meeting-card__button"
-                            id="host-meeting-btn"
-                            type="button">
-                            Start meeting <span>→</span>
-                        </button>
+                    </div>
 
-                    </article>
+                </section>
 
-                    <!-- Create a meeting -->
-                    <article class="meeting-card">
+            </div>
+        </main>
 
-                        <div class="meeting-card__icon">＋</div>
+    </div>
 
-                        <h3>Create a meeting</h3>
+    <!-- Create meeting modal -->
+    <div class="modal" id="create-modal" hidden>
+        <form class="modal__panel" id="create-form" novalidate>
+            <h3>Create a meeting</h3>
+            <p>Name your meeting. You'll get a meeting ID to share, and you'll join the room right away.</p>
+            <input class="modal__input" id="meeting-name" type="text" maxlength="80" placeholder="Meeting name"
+                autocomplete="off" aria-label="Meeting name">
+            <p class="form-error" id="create-error" role="alert"></p>
+            <div class="modal__actions">
+                <button class="btn-secondary" id="create-cancel" type="button">Cancel</button>
+                <button class="meeting-card__button" id="create-submit" type="submit">Create and join</button>
+            </div>
+        </form>
+    </div>
 
-                        <p>
-                            Set up a meeting, configure its details
-                            and prepare to invite participants.
-                        </p>
-
-                        <button
-                            class="meeting-card__button"
-                            id="create-meeting-btn"
-                            type="button">
-                            Create meeting <span>→</span>
-                        </button>
-
-                    </article>
-
-                </div>
-
-            </section>
-
-            <!-- Join a meeting -->
-            <section class="section">
-
-                <h2 class="section__heading">Join a meeting</h2>
-
-                <form class="join-row" id="join-form" novalidate>
-                    <input
-                        id="join-input"
-                        type="text"
-                        placeholder="Meeting ID or invite link"
-                        autocomplete="off"
-                        aria-label="Meeting ID or invite link">
-                    <button class="meeting-card__button" type="submit">Join</button>
-                </form>
-                <p class="form-error" id="join-error" role="alert"></p>
-
-            </section>
-
-            <!-- Future meeting area -->
-            <section class="section">
-
-                <h2 class="section__heading">Your meetings</h2>
-
-                <div class="empty-state">
-
-                    <div class="empty-state__icon">▤</div>
-
-                    <h3>No meetings yet</h3>
-
-                    <p>
-                        Your meetings will appear here once you create one.
-                    </p>
-
-                </div>
-
-            </section>
-
-        </div>
-    </main>
-
-</div>
-
-<!-- Create meeting modal -->
-<div class="modal" id="create-modal" hidden>
-    <form class="modal__panel" id="create-form" novalidate>
-        <h3>Create a meeting</h3>
-        <p>Name your meeting. You'll get a meeting ID to share, and you'll join the room right away.</p>
-        <input
-            class="modal__input"
-            id="meeting-name"
-            type="text"
-            maxlength="80"
-            placeholder="Meeting name"
-            autocomplete="off"
-            aria-label="Meeting name">
-        <p class="form-error" id="create-error" role="alert"></p>
-        <div class="modal__actions">
-            <button class="btn-secondary" id="create-cancel" type="button">Cancel</button>
-            <button class="meeting-card__button" id="create-submit" type="submit">Create and join</button>
-        </div>
-    </form>
-</div>
-
-<script type="module" src="dashboard.js"></script>
+    <script type="module" src="dashboard.js"></script>
 
 </body>
+
 </html>
