@@ -1,37 +1,5 @@
 import { supabase } from "./supabase.js";
-
-// Paste your Metered credentials below (dashboard -> TURN Server -> your credential -> Instructions).
-// Replace YOUR_USERNAME and YOUR_CREDENTIAL. If your dashboard shows a different host than
-// global.relay.metered.ca, use the exact URLs from your dashboard instead.
-const TURN_USERNAME = "81d88e058c49593353be7941";
-const TURN_CREDENTIAL = "y2pksYC9azhC6r8d";
-
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: "stun:stun.relay.metered.ca:80" },
-    { urls: "stun:stun.l.google.com:19302" },
-    {
-      urls: "turn:global.relay.metered.ca:80",
-      username: TURN_USERNAME,
-      credential: TURN_CREDENTIAL,
-    },
-    {
-      urls: "turn:global.relay.metered.ca:80?transport=tcp",
-      username: TURN_USERNAME,
-      credential: TURN_CREDENTIAL,
-    },
-    {
-      urls: "turn:global.relay.metered.ca:443",
-      username: TURN_USERNAME,
-      credential: TURN_CREDENTIAL,
-    },
-    {
-      urls: "turns:global.relay.metered.ca:443?transport=tcp",
-      username: TURN_USERNAME,
-      credential: TURN_CREDENTIAL,
-    },
-  ],
-};
+import { startAttention } from "./attention.js";
 
 const meetingId = (new URLSearchParams(location.search).get("id") || "").toLowerCase();
 
@@ -45,8 +13,10 @@ const copyBtn = $("copy-btn");
 const banner = $("banner");
 
 let socket = null;
+let iceConfig = null; // fetched from /api/ice after sign-in
 let localStream = null;
 let leaving = false;
+let stopAttention = null; // cleanup function returned by startAttention
 const peers = new Map(); // socketId -> { pc, stream, pending: [] }
 
 /* ---------------- UI helpers ---------------- */
@@ -113,7 +83,7 @@ async function getLocalMedia() {
 function createPeer(id, name, isHost) {
   if (peers.has(id)) return peers.get(id);
 
-  const pc = new RTCPeerConnection(ICE_CONFIG);
+  const pc = new RTCPeerConnection(iceConfig);
   const peer = { pc, stream: new MediaStream(), pending: [] };
   peers.set(id, peer);
 
@@ -198,6 +168,10 @@ async function handleSignal({ from, data }) {
 /* ---------------- Leaving ---------------- */
 
 function cleanup() {
+  if (stopAttention) {
+    stopAttention();
+    stopAttention = null;
+  }
   for (const id of [...peers.keys()]) closePeer(id);
   localStream?.getTracks().forEach((t) => t.stop());
 }
@@ -256,6 +230,17 @@ async function init() {
   }
   const token = session.access_token;
 
+  // TURN/STUN settings come from the server (credentials stay in .env)
+  try {
+    const iceRes = await fetch("/api/ice", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!iceRes.ok) throw new Error("ice");
+    iceConfig = await iceRes.json();
+  } catch {
+    return showNotice("Can't start the meeting", "Could not load connection settings. Sign in again and retry.");
+  }
+
   let meeting;
   try {
     const res = await fetch(`/api/meetings/${meetingId}`, {
@@ -305,6 +290,18 @@ async function init() {
         return showNotice("Can't join", res?.error || "Something went wrong.");
       }
       if (res.isHost) endBtn.hidden = false;
+
+      // Attention monitoring: students send scores, the host sees the panel.
+      // startAttention may return a promise (student side) or a function (host side).
+      Promise.resolve(startAttention({ socket, isHost: res.isHost }))
+        .then((stop) => {
+          if (typeof stop === "function") {
+            if (leaving) stop();
+            else stopAttention = stop;
+          }
+        })
+        .catch((err) => console.error("Attention monitoring failed to start:", err));
+
       for (const peer of res.peers) await callPeer(peer).catch(console.error);
     });
   });
