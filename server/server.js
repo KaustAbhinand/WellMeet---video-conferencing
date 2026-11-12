@@ -36,7 +36,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MAX_PEERS = 6; // mesh limit
+const MAX_PEERS = 6;
 const ID_RE = /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
 
 /* ---------------- helpers ---------------- */
@@ -58,11 +58,10 @@ const bearer = (req) => (req.headers.authorization || "").replace(/^Bearer\s+/i,
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "..", "public"))); // only public/ is served
+app.use(express.static(path.join(__dirname, "..", "public")));
 app.get("/", (req, res) => res.redirect("/login.html"));
 
 // ICE (STUN/TURN) settings, only for signed-in users.
-// The TURN credentials live in environment variables, never in public files.
 app.get("/api/ice", async (req, res) => {
   const user = await getUserFromToken(bearer(req));
   if (!user) return res.status(401).json({ error: "Please sign in again." });
@@ -109,7 +108,6 @@ app.post("/api/meetings", async (req, res) => {
       console.error("Create meeting error:", error);
       return res.status(500).json({ error: "Could not create the meeting." });
     }
-    // 23505 = unique violation on meeting_id -> try a new ID
   }
   res.status(500).json({ error: "Could not generate a unique meeting ID." });
 });
@@ -223,7 +221,6 @@ io.on("connection", (socket) => {
     }
 
     const isHost = meeting.host_id === socket.data.user.id;
-
     const peers = [...room.entries()].map(([pid, p]) => ({
       id: pid,
       name: p.name,
@@ -236,29 +233,18 @@ io.on("connection", (socket) => {
       isHost,
       videoEnabled: isHost,
     });
-
     rooms.set(id, room);
     socket.data.meetingId = id;
     socket.join(id);
+    console.log("join-room: joined", id, socket.data.name, "isHost:", isHost, "room size now", room.size);
 
-    console.log(
-      "join-room: joined",
-      id,
-      socket.data.name,
-      "isHost:",
-      isHost,
-      "room size now",
-      room.size
-    );
-
-    // Existing members just prepare to answer; the newcomer sends the offers.
+    // Existing members prepare to answer; the newcomer sends the offers.
     socket.to(id).emit("peer-joined", {
       id: socket.id,
       name: socket.data.name,
       isHost,
       videoEnabled: isHost,
     });
-
     ack({ ok: true, selfId: socket.id, isHost, peers });
   });
 
@@ -276,7 +262,7 @@ io.on("connection", (socket) => {
     if (!me || me.isHost) return;
 
     const now = Date.now();
-    if (now - (socket.data.lastAttention || 0) < 1000) return; // throttle
+    if (now - (socket.data.lastAttention || 0) < 1000) return;
     socket.data.lastAttention = now;
 
     const num = (v) => Math.max(0, Math.min(100, Math.round(Number(v) || 0)));
@@ -328,11 +314,9 @@ io.on("connection", (socket) => {
     if (!socket.data.nudgeCooldowns) {
       socket.data.nudgeCooldowns = new Map();
     }
-
     const now = Date.now();
     const lastNudge = socket.data.nudgeCooldowns.get(targetId) || 0;
     const elapsed = now - lastNudge;
-
     if (elapsed < 60000) {
       const remainingSecs = Math.ceil((60000 - elapsed) / 1000);
       return ack({
@@ -361,90 +345,67 @@ io.on("connection", (socket) => {
 
     const room = rooms.get(socket.data.meetingId);
     const sender = room?.get(socket.id);
-
     if (!sender || !sender.isHost) {
       return ack({ ok: false, error: "Only the meeting host can do this." });
     }
-
     if (!targetId || typeof targetId !== "string" || targetId === socket.id) {
       return ack({ ok: false, error: "Invalid participant ID." });
     }
 
     const target = room.get(targetId);
     const targetSocket = io.sockets.sockets.get(targetId);
-
     if (!target || !targetSocket) {
       return ack({ ok: false, error: "Participant is no longer in the meeting." });
     }
 
-    targetSocket.timeout(5000).emit(
-      "request-video",
-      { by: sender.name },
-      (err, res) => {
-        if (err || !res?.ok) {
-          return ack({
-            ok: false,
-            error: res?.error || `${target.name} did not respond.`,
-          });
-        }
-
-        target.videoEnabled = true;
-
-        io.to(socket.data.meetingId).emit("participant-video-state", {
-          participantId: targetId,
-          videoEnabled: true,
+    targetSocket.timeout(5000).emit("request-video", { by: sender.name }, (err, res) => {
+      if (err || !res?.ok) {
+        return ack({
+          ok: false,
+          error: res?.error || `${target.name} did not respond.`,
         });
-
-        ack({ ...res, targetName: target.name });
       }
-    );
+
+      target.videoEnabled = true;
+      io.to(socket.data.meetingId).emit("participant-video-state", {
+        participantId: targetId,
+        videoEnabled: true,
+      });
+
+      ack({ ...res, targetName: target.name });
+    });
   });
 
-  // host -> specific participant: ask their client to stop sending camera video.
-  // The participant keeps their local camera available for attention monitoring
-  // and can be asked to share video again later.
+  // host -> specific participant: hide their video immediately.
+  // Stopping their outgoing track is a best-effort background action.
   socket.on("request-video-off", ({ targetId } = {}, ack) => {
     if (typeof ack !== "function") ack = () => {};
 
     const room = rooms.get(socket.data.meetingId);
     const sender = room?.get(socket.id);
-
     if (!sender || !sender.isHost) {
       return ack({ ok: false, error: "Only the meeting host can do this." });
     }
-
     if (!targetId || typeof targetId !== "string" || targetId === socket.id) {
       return ack({ ok: false, error: "Invalid participant ID." });
     }
 
     const target = room.get(targetId);
     const targetSocket = io.sockets.sockets.get(targetId);
-
     if (!target || target.isHost || !targetSocket) {
       return ack({ ok: false, error: "Participant is no longer in the meeting." });
     }
 
-    targetSocket.timeout(5000).emit(
-      "request-video-off",
-      { by: sender.name },
-      (err, res) => {
-        if (err || !res?.ok) {
-          return ack({
-            ok: false,
-            error: res?.error || `${target.name} did not respond.`,
-          });
-        }
+    // Hide the participant's remote video immediately. Ask their client to
+    // stop sending its camera track as a best-effort background action.
+    target.videoEnabled = false;
+    io.to(socket.data.meetingId).emit("participant-video-state", {
+      participantId: targetId,
+      videoEnabled: false,
+    });
 
-        target.videoEnabled = false;
-
-        io.to(socket.data.meetingId).emit("participant-video-state", {
-          participantId: targetId,
-          videoEnabled: false,
-        });
-
-        ack({ ...res, targetName: target.name });
-      }
-    );
+    targetSocket.emit("request-video-off", { by: sender.name });
+    ack({ ok: true, targetName: target.name });
   });
 
   socket.on("end-meeting", async () => {
