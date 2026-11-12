@@ -1,11 +1,8 @@
+
 // attention.js
 // Student side: runs MediaPipe Face Landmarker locally, scores attention,
 //               sends ONLY { score, confidence, low } to the server.
 // Host side:    shows a small live panel with each student's score.
-//
-// Usage (from meeting.js, after a successful join):
-//   import { startAttention } from "./attention.js";
-//   startAttention({ socket, isHost: ack.isHost });
 
 /* ---------------- Tunables ---------------- */
 
@@ -13,22 +10,18 @@ const VISION_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
 
-const SAMPLE_MS = 200;          // ~5 frames per second
-const REPORT_MS = 2000;         // send one score every 2 seconds
-const CALIBRATION_FRAMES = 15;  // learn the student's "looking at screen" pose
-const LOW_CONF = 50;            // confidence below this counts as low
-const LOW_TO_ALERT = 3;         // consecutive low windows before alerting
-const OK_TO_CLEAR = 2;          // consecutive good windows before clearing
-const STALE_MS = 8000;          // host panel: no update for this long = no data
+const SAMPLE_MS = 200;
+const REPORT_MS = 2000;
+const CALIBRATION_FRAMES = 15;
+const LOW_CONF = 50;
+const LOW_TO_ALERT = 3;
+const OK_TO_CLEAR = 2;
+const STALE_MS = 8000;
 
-// Head pose tolerance (degrees, after calibration)
 const YAW_FREE = 15, YAW_RANGE = 30;
 const PITCH_FREE = 15, PITCH_RANGE = 25;
 
-// Eye aspect ratio: closed below EAR_CLOSED, fully open above EAR_OPEN
 const EAR_CLOSED = 0.15, EAR_OPEN = 0.22;
-
-// Face width as a fraction of the frame; smaller = too far away
 const MIN_FACE_WIDTH = 0.18;
 
 /* ---------------- Helpers ---------------- */
@@ -49,14 +42,16 @@ function eyeAspectRatio(lm, idx, w, h) {
   return (dist(p2, p6, w, h) + dist(p3, p5, w, h)) / (2 * horizontal);
 }
 
-// 4x4 column-major transform -> yaw / pitch in degrees
 function headPose(matrix) {
   if (!matrix || !matrix.data) return { yaw: 0, pitch: 0 };
+
   const m = matrix.data;
   const yaw = Math.atan2(-m[2], Math.hypot(m[0], m[1])) * RAD;
+
   let pitch = Math.atan2(m[6], m[10]) * RAD;
   if (pitch > 90) pitch -= 180;
   else if (pitch < -90) pitch += 180;
+
   return { yaw, pitch };
 }
 
@@ -65,13 +60,16 @@ function frameScore(yaw, pitch, ear) {
   const pitchOk = 1 - clamp01((Math.abs(pitch) - PITCH_FREE) / PITCH_RANGE);
   const headFacing = Math.min(yawOk, pitchOk);
   const eyesOpen = clamp01((ear - EAR_CLOSED) / (EAR_OPEN - EAR_CLOSED));
+
   return 100 * (0.6 * headFacing + 0.4 * eyesOpen);
 }
 
 function injectStyles() {
   if (document.getElementById("attention-styles")) return;
+
   const style = document.createElement("style");
   style.id = "attention-styles";
+
   style.textContent = `
     .att-alert {
       position: fixed; top: 76px; left: 50%; transform: translateX(-50%);
@@ -81,14 +79,17 @@ function injectStyles() {
     }
     .att-alert[hidden] { display: none; }
   `;
+
   document.head.appendChild(style);
 }
 
-// Styles for the host's "Turn on video" button (kept here so meeting.html stays unchanged)
+// Styles for the host's video toggle button.
 function injectHostStyles() {
   if (document.getElementById("attention-host-styles")) return;
+
   const style = document.createElement("style");
   style.id = "attention-host-styles";
+
   style.textContent = `
     .btn-video {
       display: inline-flex; align-items: center; gap: 5px;
@@ -108,6 +109,7 @@ function injectHostStyles() {
     }
     .btn-video[hidden] { display: none !important; }
   `;
+
   document.head.appendChild(style);
 }
 
@@ -117,6 +119,7 @@ async function createLandmarker() {
   const { FaceLandmarker, FilesetResolver } = await import(
     `${VISION_URL}/vision_bundle.mjs`
   );
+
   const fileset = await FilesetResolver.forVisionTasks(`${VISION_URL}/wasm`);
 
   const make = (delegate) =>
@@ -134,16 +137,22 @@ async function createLandmarker() {
   }
 }
 
-// Resolves with the local <video> once it has frames, or null after timeoutMs
 function waitForVideo(videoEl, timeoutMs = 20000) {
   return new Promise((resolve) => {
     const started = Date.now();
+
     const tick = () => {
       const v = videoEl || document.querySelector(".tile--self video");
-      if (v && v.readyState >= 2 && v.videoWidth > 0) return resolve(v);
+
+      if (v && v.readyState >= 2 && v.videoWidth > 0) {
+        return resolve(v);
+      }
+
       if (Date.now() - started > timeoutMs) return resolve(null);
+
       setTimeout(tick, 300);
     };
+
     tick();
   });
 }
@@ -157,16 +166,21 @@ async function startStudentMonitor(socket, videoEl) {
   alertEl.setAttribute("role", "alert");
   alertEl.textContent =
     "We can't see you clearly. Please check your camera, lighting and position.";
+
   document.body.appendChild(alertEl);
 
-  // If monitoring can't run, keep telling the host (score 0, low visibility)
-  // instead of staying silent, so the dashboard doesn't sit on "Waiting for data".
   function failAndReport(message) {
     alertEl.textContent = message;
     alertEl.hidden = false;
+
     const timer = setInterval(() => {
-      socket.emit("attention", { score: 0, confidence: 0, low: true });
+      socket.emit("attention", {
+        score: 0,
+        confidence: 0,
+        low: true
+      });
     }, REPORT_MS);
+
     return function stop() {
       clearInterval(timer);
       alertEl.remove();
@@ -174,33 +188,40 @@ async function startStudentMonitor(socket, videoEl) {
   }
 
   console.log("[attention] loading face model…");
+
   let landmarker;
+
   try {
     landmarker = await createLandmarker();
   } catch (err) {
     console.error("[attention] model failed to load:", err);
+
     return failAndReport(
       "Attention monitoring could not start. Check your connection and reload the page."
     );
   }
+
   console.log("[attention] model loaded, waiting for camera video…");
 
   const video = await waitForVideo(videoEl);
+
   if (!video) {
-    console.error("[attention] no camera video available (permission denied or camera in use?)");
+    console.error("[attention] no camera video available");
     landmarker.close();
+
     return failAndReport(
       "We can't see you clearly. Please check your camera, lighting and position."
     );
   }
+
   console.log("[attention] monitoring started");
 
-  // calibration: learn the student's normal head pose
+  // Calibration
   let calN = 0;
   const calSum = { yaw: 0, pitch: 0 };
   let offset = { yaw: 0, pitch: 0 };
 
-  // per-window accumulators
+  // Per-window accumulators
   let win = { total: 0, face: 0, scoreSum: 0, sizeSum: 0 };
   let smooth = null;
   let lowRun = 0;
@@ -211,6 +232,7 @@ async function startStudentMonitor(socket, videoEl) {
     if (video.readyState < 2) return;
 
     let res;
+
     try {
       res = landmarker.detectForVideo(video, performance.now());
     } catch (err) {
@@ -218,14 +240,15 @@ async function startStudentMonitor(socket, videoEl) {
     }
 
     win.total++;
+
     const lm = res.faceLandmarks && res.faceLandmarks[0];
     if (!lm) return;
 
     const w = video.videoWidth;
     const h = video.videoHeight;
 
-    // face width as a fraction of the frame
     let minX = 1, maxX = 0;
+
     for (const p of lm) {
       if (p.x < minX) minX = p.x;
       if (p.x > maxX) maxX = p.x;
@@ -236,16 +259,22 @@ async function startStudentMonitor(socket, videoEl) {
         eyeAspectRatio(lm, RIGHT_EYE, w, h)) / 2;
 
     let { yaw, pitch } = headPose(
-      res.facialTransformationMatrixes && res.facialTransformationMatrixes[0]
+      res.facialTransformationMatrixes &&
+        res.facialTransformationMatrixes[0]
     );
 
     if (calN < CALIBRATION_FRAMES) {
       calSum.yaw += yaw;
       calSum.pitch += pitch;
       calN++;
+
       if (calN === CALIBRATION_FRAMES) {
-        offset = { yaw: calSum.yaw / calN, pitch: calSum.pitch / calN };
+        offset = {
+          yaw: calSum.yaw / calN,
+          pitch: calSum.pitch / calN
+        };
       }
+
       yaw = 0;
       pitch = 0;
     } else {
@@ -261,6 +290,7 @@ async function startStudentMonitor(socket, videoEl) {
   function report() {
     const presence = win.total ? win.face / win.total : 0;
     const avgSize = win.face ? win.sizeSum / win.face : 0;
+
     const confidence = Math.round(
       100 * presence * clamp01(avgSize / MIN_FACE_WIDTH)
     );
@@ -270,7 +300,6 @@ async function startStudentMonitor(socket, videoEl) {
       smooth = smooth === null ? raw : 0.6 * smooth + 0.4 * raw;
     }
 
-    // debounce / hysteresis for the low-confidence alert
     if (confidence < LOW_CONF) {
       lowRun++;
       okRun = 0;
@@ -278,8 +307,10 @@ async function startStudentMonitor(socket, videoEl) {
       okRun++;
       lowRun = 0;
     }
+
     if (!low && lowRun >= LOW_TO_ALERT) low = true;
     if (low && okRun >= OK_TO_CLEAR) low = false;
+
     alertEl.hidden = !low;
 
     socket.emit("attention", {
@@ -304,7 +335,12 @@ async function startStudentMonitor(socket, videoEl) {
 
 /* ---------------- Toast Notification Utility ---------------- */
 
-export function showToast({ type = "info", title = "", message = "", duration = 4000 } = {}) {
+export function showToast({
+  type = "info",
+  title = "",
+  message = "",
+  duration = 4000
+} = {}) {
   const container = document.getElementById("toast-container");
   if (!container) return;
 
@@ -317,7 +353,10 @@ export function showToast({ type = "info", title = "", message = "", duration = 
       ? '<svg class="toast__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>'
       : '<svg class="toast__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
 
-  const titleHtml = title ? `<div class="toast__title">${title}</div>` : "";
+  const titleHtml = title
+    ? `<div class="toast__title">${title}</div>`
+    : "";
+
   toast.innerHTML = `
     ${iconSvg}
     <div class="toast__body">
@@ -325,20 +364,24 @@ export function showToast({ type = "info", title = "", message = "", duration = 
       <p class="toast__message"></p>
     </div>
   `;
+
   const msgEl = toast.querySelector(".toast__message");
   if (msgEl) msgEl.textContent = message;
 
   container.appendChild(toast);
 
   let removed = false;
+
   const remove = () => {
     if (removed) return;
+
     removed = true;
     toast.classList.add("toast--out");
     setTimeout(() => toast.remove(), 250);
   };
 
   const timer = setTimeout(remove, duration);
+
   toast.addEventListener("click", () => {
     clearTimeout(timer);
     remove();
@@ -364,16 +407,20 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
   const rosterList = document.getElementById("roster-list");
   const emptyEl = document.getElementById("attention-empty");
 
-  // Show host-only Attention Dashboard button
   if (attentionBtn) {
     attentionBtn.hidden = false;
   }
 
   function toggleDrawer(force) {
     if (!drawer) return;
-    const shouldOpen = typeof force === "boolean" ? force : drawer.hidden;
+
+    const shouldOpen =
+      typeof force === "boolean" ? force : drawer.hidden;
+
     drawer.hidden = !shouldOpen;
+
     if (backdrop) backdrop.hidden = !shouldOpen;
+
     if (attentionBtn) {
       attentionBtn.setAttribute("aria-expanded", String(shouldOpen));
       attentionBtn.classList.toggle("btn--active", shouldOpen);
@@ -403,15 +450,15 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
   backdrop?.addEventListener("click", onBackdropClick);
   window.addEventListener("keydown", onKeyDown);
 
-  // Participant state: socketId -> { id, name, score, confidence, low, status, lastSeen }
-  // Status: "pending" | "attentive" | "needs-attention" | "stale"
+  // Participant state:
+  // socketId -> { id, name, score, confidence, low, status,
+  //               lastSeen, videoEnabled }
   const participants = new Map();
   const STALE_MS = 8000;
 
-  // Nudge cooldown tracking: targetId -> { until: number, timer: number }
   const nudgeCooldowns = new Map();
 
-  // Participants with a "turn on video" request in flight
+  // Participants with a video request in flight.
   const videoBusy = new Set();
 
   function startCooldown(targetId, seconds = 60) {
@@ -420,8 +467,13 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
     }
 
     const until = Date.now() + seconds * 1000;
+
     const tick = () => {
-      const remaining = Math.max(0, Math.ceil((until - Date.now()) / 1000));
+      const remaining = Math.max(
+        0,
+        Math.ceil((until - Date.now()) / 1000)
+      );
+
       const card = document.getElementById(`participant-${targetId}`);
       const btn = card?.querySelector(".btn-nudge");
       const textEl = card?.querySelector(".btn-nudge__text");
@@ -429,8 +481,10 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
       if (remaining <= 0) {
         clearInterval(timer);
         nudgeCooldowns.delete(targetId);
+
         const cur = participants.get(targetId);
         if (cur) renderCard(cur);
+
         return;
       }
 
@@ -441,6 +495,7 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
     };
 
     const timer = setInterval(tick, 1000);
+
     nudgeCooldowns.set(targetId, { until, timer });
     tick();
   }
@@ -450,6 +505,7 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
 
     btn.disabled = true;
     btn.classList.add("btn-nudge--loading");
+
     if (textEl) textEl.textContent = "Sending…";
 
     socket.emit("nudge-participant", { targetId }, (res) => {
@@ -459,70 +515,97 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
         showToast({
           type: "error",
           title: "Nudge Failed",
-          message: res?.error || "Could not deliver nudge.",
+          message: res?.error || "Could not deliver nudge."
         });
+
         if (res?.cooldownRemaining) {
-          startCooldown(targetId, res?.cooldownRemaining);
+          startCooldown(targetId, res.cooldownRemaining);
         } else {
           const cur = participants.get(targetId);
           if (cur) renderCard(cur);
         }
+
         return;
       }
 
       showToast({
         type: "success",
         title: "Nudge Sent",
-        message: `Nudge delivered to ${targetName || res.targetName || "participant"}.`,
+        message: `Nudge delivered to ${targetName || res.targetName || "participant"}.`
       });
 
       startCooldown(targetId, 60);
     });
   }
 
-  // Ask the participant's client to turn its camera on (visible to everyone)
+  // Toggle the participant's outgoing video.
+  // The local camera remains available for attention monitoring.
   function onVideoClick(targetId, targetName) {
     if (videoBusy.has(targetId)) return;
-    videoBusy.add(targetId);
-    const before = participants.get(targetId);
-    if (before) renderCard(before);
 
-    socket.emit("request-video", { targetId }, (res) => {
+    const participant = participants.get(targetId);
+    if (!participant) return;
+
+    const turnOff = !!participant.videoEnabled;
+    const eventName = turnOff
+      ? "request-video-off"
+      : "request-video";
+
+    videoBusy.add(targetId);
+    renderCard(participant);
+
+    socket.emit(eventName, { targetId }, (res) => {
+      const current = participants.get(targetId);
+
       if (res?.ok) {
+        if (current) {
+          current.videoEnabled = !turnOff;
+          renderCard(current);
+        }
+
         showToast({
           type: "success",
-          title: "Video Turned On",
-          message: `${targetName || res.targetName || "Participant"}'s camera is now on and visible to everyone.`,
+          title: turnOff ? "Video Turned Off" : "Video Turned On",
+          message: turnOff
+            ? `${targetName || res.targetName || "Participant"}'s video is no longer being shared.`
+            : `${targetName || res.targetName || "Participant"}'s camera is now on and visible to everyone.`
         });
       } else {
         showToast({
           type: "error",
-          title: "Could Not Turn On Video",
-          message: res?.error || "The participant's camera could not be turned on.",
+          title: turnOff
+            ? "Could Not Turn Off Video"
+            : "Could Not Turn On Video",
+          message:
+            res?.error ||
+            `The participant's video could not be turned ${turnOff ? "off" : "on"}.`
         });
       }
 
-      // short lock so the button can't be spammed
-      setTimeout(() => {
-        videoBusy.delete(targetId);
-        const cur = participants.get(targetId);
-        if (cur) renderCard(cur);
-      }, 4000);
+      videoBusy.delete(targetId);
+
+      const updated = participants.get(targetId);
+      if (updated) renderCard(updated);
     });
   }
 
   function updateStats() {
     const total = participants.size;
+
     let sum = 0;
     let countWithScore = 0;
     let attentive = 0;
     let needsAttention = 0;
 
     for (const p of participants.values()) {
-      if (p.score !== null && p.status !== "pending" && p.status !== "stale") {
+      if (
+        p.score !== null &&
+        p.status !== "pending" &&
+        p.status !== "stale"
+      ) {
         sum += p.score;
         countWithScore++;
-        // Rule: Score >= 70 is Attentive, Score < 70 is Needs Attention
+
         if (p.score >= 70) {
           attentive++;
         } else {
@@ -533,16 +616,31 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
 
     if (statTotal) statTotal.textContent = String(total);
     if (rosterCount) rosterCount.textContent = String(total);
-    if (statAvg) statAvg.textContent = countWithScore > 0 ? `${Math.round(sum / countWithScore)}%` : "—";
-    if (statAttentive) statAttentive.textContent = String(attentive);
-    if (statNeedsAtt) statNeedsAtt.textContent = String(needsAttention);
+
+    if (statAvg) {
+      statAvg.textContent =
+        countWithScore > 0
+          ? `${Math.round(sum / countWithScore)}%`
+          : "—";
+    }
+
+    if (statAttentive) {
+      statAttentive.textContent = String(attentive);
+    }
+
+    if (statNeedsAtt) {
+      statNeedsAtt.textContent = String(needsAttention);
+    }
+
     if (alertDot) alertDot.hidden = needsAttention === 0;
     if (emptyEl) emptyEl.hidden = total > 0;
   }
 
   function renderCard(p) {
     if (!rosterList) return;
+
     let card = document.getElementById(`participant-${p.id}`);
+
     if (!card) {
       card = document.createElement("div");
       card.id = `participant-${p.id}`;
@@ -566,15 +664,24 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
           <span class="score-label">Attention Score</span>
           <div class="score-action-group">
             <span class="score-value"></span>
-            <button class="btn-video" type="button" title="Turn on this participant's camera for everyone" hidden>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <button class="btn-video" type="button" hidden>
+              <svg width="12" height="12" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"
+                aria-hidden="true">
                 <polygon points="23 7 16 12 23 17 23 7"></polygon>
                 <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
               </svg>
               <span class="btn-video__text">Turn on video</span>
             </button>
-            <button class="btn-nudge" type="button" aria-label="Nudge participant" title="Send focus reminder" hidden>
-              <svg class="btn-nudge__icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <button class="btn-nudge" type="button"
+              aria-label="Nudge participant"
+              title="Send focus reminder" hidden>
+              <svg class="btn-nudge__icon" width="12" height="12"
+                viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"
+                aria-hidden="true">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
               </svg>
@@ -589,12 +696,20 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
 
       const newNudgeBtn = card.querySelector(".btn-nudge");
       const newNudgeText = card.querySelector(".btn-nudge__text");
+
       newNudgeBtn?.addEventListener("click", () => {
         const cur = participants.get(p.id);
-        onNudgeClick(p.id, cur?.name || p.name, newNudgeBtn, newNudgeText);
+
+        onNudgeClick(
+          p.id,
+          cur?.name || p.name,
+          newNudgeBtn,
+          newNudgeText
+        );
       });
 
       const newVideoBtn = card.querySelector(".btn-video");
+
       newVideoBtn?.addEventListener("click", () => {
         const cur = participants.get(p.id);
         onVideoClick(p.id, cur?.name || p.name);
@@ -616,14 +731,18 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
     const videoText = card.querySelector(".btn-video__text");
 
     if (nameEl) nameEl.textContent = p.name || "Participant";
-    if (avatar) avatar.textContent = (p.name || "P").charAt(0).toUpperCase();
 
-    // Meta notes
+    if (avatar) {
+      avatar.textContent = (p.name || "P").charAt(0).toUpperCase();
+    }
+
     if (metaEl) {
       if (p.low) {
-        metaEl.innerHTML = '<span class="tag-warn">Low visibility / Check camera</span>';
+        metaEl.innerHTML =
+          '<span class="tag-warn">Low visibility / Check camera</span>';
       } else if (p.status === "stale") {
-        metaEl.innerHTML = '<span style="color:var(--muted)">No recent signal</span>';
+        metaEl.innerHTML =
+          '<span style="color:var(--muted)">No recent signal</span>';
       } else {
         metaEl.textContent = "";
       }
@@ -631,104 +750,169 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
 
     const cd = nudgeCooldowns.get(p.id);
     const isCooldown = cd && cd.until > Date.now();
-    const remaining = isCooldown ? Math.max(0, Math.ceil((cd.until - Date.now()) / 1000)) : 0;
+
+    const remaining = isCooldown
+      ? Math.max(0, Math.ceil((cd.until - Date.now()) / 1000))
+      : 0;
 
     if (p.status === "pending") {
       card.className = "participant-card participant-card--pending";
+
       if (avatar) avatar.className = "participant-avatar";
+
       if (badge) badge.className = "status-badge status-badge--pending";
+
       if (badgeText) badgeText.textContent = "Waiting for data";
+
       if (scoreVal) {
         scoreVal.className = "score-value score-value--muted";
         scoreVal.textContent = "—";
       }
+
       if (barFill) {
         barFill.className = "score-bar-fill score-bar-fill--pending";
         barFill.style.width = "0%";
       }
+
       if (nudgeBtn) {
         nudgeBtn.hidden = true;
         nudgeBtn.disabled = true;
       }
     } else if (p.status === "stale") {
       card.className = "participant-card participant-card--pending";
+
       if (avatar) avatar.className = "participant-avatar";
+
       if (badge) badge.className = "status-badge status-badge--stale";
+
       if (badgeText) badgeText.textContent = "Unavailable";
+
       if (scoreVal) {
         scoreVal.className = "score-value score-value--muted";
         scoreVal.textContent = "—";
       }
+
       if (barFill) {
         barFill.className = "score-bar-fill score-bar-fill--pending";
         barFill.style.width = "0%";
       }
+
       if (nudgeBtn) {
         nudgeBtn.hidden = true;
         nudgeBtn.disabled = true;
       }
     } else {
-      // Real score from existing detection system
       const isAttentive = p.score >= 70;
+
       if (isAttentive) {
         card.className = "participant-card participant-card--attentive";
-        if (avatar) avatar.className = "participant-avatar participant-avatar--attentive";
-        if (badge) badge.className = "status-badge status-badge--attentive";
+
+        if (avatar) {
+          avatar.className =
+            "participant-avatar participant-avatar--attentive";
+        }
+
+        if (badge) {
+          badge.className = "status-badge status-badge--attentive";
+        }
+
         if (badgeText) badgeText.textContent = "Attentive";
+
         if (scoreVal) {
           scoreVal.className = "score-value score-value--attentive";
           scoreVal.textContent = `${p.score} / 100`;
         }
+
         if (barFill) {
-          barFill.className = "score-bar-fill score-bar-fill--attentive";
+          barFill.className =
+            "score-bar-fill score-bar-fill--attentive";
           barFill.style.width = `${p.score}%`;
         }
-        // Score is 70 or above: Nudge button must be hidden/disabled
+
         if (nudgeBtn) {
           nudgeBtn.hidden = true;
           nudgeBtn.disabled = true;
         }
       } else {
-        card.className = "participant-card participant-card--needs-attention";
-        if (avatar) avatar.className = "participant-avatar participant-avatar--needs-attention";
-        if (badge) badge.className = "status-badge status-badge--needs-attention";
+        card.className =
+          "participant-card participant-card--needs-attention";
+
+        if (avatar) {
+          avatar.className =
+            "participant-avatar participant-avatar--needs-attention";
+        }
+
+        if (badge) {
+          badge.className =
+            "status-badge status-badge--needs-attention";
+        }
+
         if (badgeText) badgeText.textContent = "Needs Attention";
+
         if (scoreVal) {
-          scoreVal.className = "score-value score-value--needs-attention";
+          scoreVal.className =
+            "score-value score-value--needs-attention";
           scoreVal.textContent = `${p.score} / 100`;
         }
+
         if (barFill) {
-          barFill.className = "score-bar-fill score-bar-fill--needs-attention";
+          barFill.className =
+            "score-bar-fill score-bar-fill--needs-attention";
           barFill.style.width = `${p.score}%`;
         }
-        // Score is below 70: Display Nudge button
+
         if (nudgeBtn) {
           nudgeBtn.hidden = false;
+
           if (isCooldown) {
             nudgeBtn.disabled = true;
-            if (nudgeText) nudgeText.textContent = `Nudge (${remaining}s)`;
+
+            if (nudgeText) {
+              nudgeText.textContent = `Nudge (${remaining}s)`;
+            }
           } else if (!nudgeBtn.classList.contains("btn-nudge--loading")) {
             nudgeBtn.disabled = false;
+
             if (nudgeText) nudgeText.textContent = "Nudge";
           }
         }
       }
     }
 
-    // "Turn on video": offered when the score is below the threshold (same
-    // rule as the nudge button) or when the student's face can't be seen.
+    // Video button visibility:
+    // 1. Score below 70 -> show Turn on video.
+    // 2. Low face visibility -> show Turn on video.
+    // 3. Video already enabled -> keep Turn off video available,
+    //    even if attention improves or the attention data becomes stale.
     if (videoBtn) {
-      const hasData = p.status === "attentive" || p.status === "needs-attention";
-      const showVideo = hasData && (p.status === "needs-attention" || p.low);
+      const hasData =
+        p.status === "attentive" ||
+        p.status === "needs-attention";
+
+      const showVideo =
+        p.videoEnabled ||
+        (hasData && (p.status === "needs-attention" || p.low));
+
       const busy = videoBusy.has(p.id);
+
       videoBtn.hidden = !showVideo;
       videoBtn.disabled = busy;
-      if (videoText) videoText.textContent = busy ? "Requesting…" : "Turn on video";
+
+      if (videoText) {
+        videoText.textContent = busy
+          ? (p.videoEnabled ? "Turning off…" : "Turning on…")
+          : (p.videoEnabled ? "Turn off video" : "Turn on video");
+      }
+
+      videoBtn.title = p.videoEnabled
+        ? "Stop sharing this participant's video with everyone"
+        : "Turn on this participant's camera for everyone";
     }
   }
 
   function addOrUpdateParticipant(id, name, scoreData = null) {
     let p = participants.get(id);
+
     if (!p) {
       p = {
         id,
@@ -736,19 +920,35 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
         score: null,
         confidence: null,
         low: false,
+        videoEnabled: false,
         status: "pending",
-        lastSeen: null,
+        lastSeen: null
       };
+
       participants.set(id, p);
     }
+
     if (name) p.name = name;
+
     if (scoreData) {
-      p.score = Math.max(0, Math.min(100, Math.round(Number(scoreData.score) || 0)));
-      p.confidence = Math.max(0, Math.min(100, Math.round(Number(scoreData.confidence) || 0)));
+      p.score = Math.max(
+        0,
+        Math.min(100, Math.round(Number(scoreData.score) || 0))
+      );
+
+      p.confidence = Math.max(
+        0,
+        Math.min(100, Math.round(Number(scoreData.confidence) || 0))
+      );
+
       p.low = !!scoreData.low;
-      p.status = p.score >= 70 ? "attentive" : "needs-attention";
+
+      p.status =
+        p.score >= 70 ? "attentive" : "needs-attention";
+
       p.lastSeen = Date.now();
     }
+
     renderCard(p);
     updateStats();
   }
@@ -758,28 +958,37 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
       clearInterval(nudgeCooldowns.get(id).timer);
       nudgeCooldowns.delete(id);
     }
+
     videoBusy.delete(id);
+
     const card = document.getElementById(`participant-${id}`);
     if (card) card.remove();
+
     participants.delete(id);
     updateStats();
   }
 
   function syncPeers(peersList = []) {
-    const activeIds = new Set(peersList.filter((p) => p && !p.isHost).map((p) => p.id));
+    const activeIds = new Set(
+      peersList
+        .filter((p) => p && !p.isHost)
+        .map((p) => p.id)
+    );
+
     for (const id of [...participants.keys()]) {
       if (!activeIds.has(id)) {
         removeParticipant(id);
       }
     }
+
     for (const peer of peersList) {
       if (!peer || peer.isHost) continue;
       addOrUpdateParticipant(peer.id, peer.name);
     }
+
     updateStats();
   }
 
-  // Populate initial peers
   if (Array.isArray(initialPeers)) {
     syncPeers(initialPeers);
   }
@@ -806,13 +1015,19 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
   const staleTimer = setInterval(() => {
     const now = Date.now();
     let changed = false;
+
     for (const p of participants.values()) {
-      if (p.lastSeen && p.status !== "stale" && now - p.lastSeen > STALE_MS) {
+      if (
+        p.lastSeen &&
+        p.status !== "stale" &&
+        now - p.lastSeen > STALE_MS
+      ) {
         p.status = "stale";
         renderCard(p);
         changed = true;
       }
     }
+
     if (changed) updateStats();
   }, 2000);
 
@@ -820,9 +1035,11 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
 
   const stop = function stop() {
     clearInterval(staleTimer);
+
     for (const { timer } of nudgeCooldowns.values()) {
       clearInterval(timer);
     }
+
     nudgeCooldowns.clear();
     videoBusy.clear();
 
@@ -840,11 +1057,14 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
       attentionBtn.classList.remove("btn--active");
       attentionBtn.setAttribute("aria-expanded", "false");
     }
+
     if (drawer) drawer.hidden = true;
     if (backdrop) backdrop.hidden = true;
+
     for (const p of participants.values()) {
       document.getElementById(`participant-${p.id}`)?.remove();
     }
+
     participants.clear();
   };
 
@@ -854,7 +1074,17 @@ function startHostDashboard({ socket, initialPeers = [] } = {}) {
 
 /* ---------------- Entry point ---------------- */
 
-export function startAttention({ socket, isHost, videoEl, peers = [] } = {}) {
-  if (!socket) throw new Error("startAttention: socket is required");
-  return isHost ? startHostDashboard({ socket, initialPeers: peers }) : startStudentMonitor(socket, videoEl);
+export function startAttention({
+  socket,
+  isHost,
+  videoEl,
+  peers = []
+} = {}) {
+  if (!socket) {
+    throw new Error("startAttention: socket is required");
+  }
+
+  return isHost
+    ? startHostDashboard({ socket, initialPeers: peers })
+    : startStudentMonitor(socket, videoEl);
 }
