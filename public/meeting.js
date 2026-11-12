@@ -1,5 +1,5 @@
 import { supabase } from "./supabase.js";
-import { startAttention } from "./attention.js";
+import { startAttention, showToast } from "./attention.js";
 
 const meetingId = (new URLSearchParams(location.search).get("id") || "").toLowerCase();
 
@@ -20,6 +20,7 @@ let leaving = false;
 let stopAttention = null; // cleanup function returned by startAttention
 let attentionStarted = false;
 let selfIsHost = false;
+let sendVideoToAll = false; // set when the host asks a student to turn video on
 let wakeLock = null;
 let connBannerShown = false;
 const peers = new Map(); // socketId -> { pc, stream, pending: [] }
@@ -93,11 +94,12 @@ function createPeer(id, name, isHost) {
   peers.set(id, peer);
 
   // Always negotiate both kinds, so we can receive even if we can't send.
-  // Students never send video: their camera is only used locally for attention scoring.
-  // Only the host sends video; everyone sends audio.
+  // Students don't send video by default: their camera is only used locally for attention scoring.
+  // The host sends video, everyone sends audio. A student starts sending video
+  // only after the host asks (sendVideoToAll).
   for (const kind of ["audio", "video"]) {
     const track = localStream.getTracks().find((t) => t.kind === kind);
-    const sendThis = track && (kind === "audio" || selfIsHost);
+    const sendThis = track && (kind === "audio" || selfIsHost || sendVideoToAll);
     if (sendThis) pc.addTrack(track, localStream);
     else pc.addTransceiver(kind, { direction: "recvonly" });
   }
@@ -173,6 +175,49 @@ async function handleSignal({ from, data }) {
   }
 }
 
+/* ---------------- Host-requested video ---------------- */
+
+// Start sending our camera to every peer. Existing connections negotiated video
+// as receive-only, so each one needs a new offer with the track attached.
+async function startSendingVideo() {
+  sendVideoToAll = true; // peers created later will send video from the start
+  const track = localStream.getVideoTracks()[0];
+  if (!track) return;
+
+  for (const [id, { pc }] of peers) {
+    try {
+      const transceiver = pc
+        .getTransceivers()
+        .find((t) => t.receiver.track && t.receiver.track.kind === "video");
+      if (!transceiver) continue;
+      if (transceiver.direction === "sendrecv" && transceiver.sender.track === track) continue;
+
+      await transceiver.sender.replaceTrack(track);
+      transceiver.direction = "sendrecv";
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("signal", { to: id, data: { description: pc.localDescription } });
+    } catch (err) {
+      console.warn(`[${id}] could not start sending video:`, err);
+    }
+  }
+}
+
+// Turn the local camera on (used when the host asks)
+function enableVideo() {
+  const tracks = localStream.getVideoTracks();
+  if (!tracks.length || tracks[0].readyState === "ended") {
+    return { ok: false, error: "No camera available." };
+  }
+  tracks.forEach((t) => (t.enabled = true));
+  camBtn.setAttribute("aria-pressed", "false");
+  const label = camBtn.querySelector(".ctrl-btn__label");
+  if (label) label.textContent = "Stop video";
+  else camBtn.textContent = "Stop video";
+  return { ok: true };
+}
+
 /* ---------------- Leaving ---------------- */
 
 let nudgeDismissTimer = null;
@@ -203,6 +248,7 @@ function leave() {
 /* ---------------- Controls ---------------- */
 
 function toggleTracks(kind, button, onLabel, offLabel) {
+  if (!localStream) return; // camera/mic still being set up
   const tracks = kind === "audio" ? localStream.getAudioTracks() : localStream.getVideoTracks();
   if (!tracks.length) return;
   const enable = !tracks[0].enabled;
@@ -426,6 +472,27 @@ async function init() {
   socket.on("nudge", ({ message, from } = {}) => {
     showNudgeNotification(message, from);
   });
+
+  // The host asked us to turn our camera on (attention dropped).
+  // We switch it on, start sending it to everyone, and tell the student.
+  socket.on("request-video", async ({ by } = {}, reply) => {
+    if (typeof reply !== "function") return;
+    const firstTime = !sendVideoToAll;
+    const r = enableVideo();
+    if (r.ok) {
+      await startSendingVideo();
+      if (firstTime) {
+        showToast({
+          type: "info",
+          title: "Camera turned on",
+          message: `${by || "The host"} turned on your camera because your attention was low. Everyone in the meeting can see you.`,
+          duration: 8000,
+        });
+      }
+    }
+    reply(r);
+  });
+
   socket.on("disconnect", (reason) => {
     if (leaving) return;
     if (reason === "io server disconnect") {

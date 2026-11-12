@@ -325,6 +325,34 @@ io.on("connection", (socket) => {
     ack({ ok: true, targetId, targetName: target.name });
   });
 
+  // host -> specific participant: ask their client to turn the camera on.
+  // The student's client does the work and replies; the server only relays.
+  socket.on("request-video", ({ targetId } = {}, ack) => {
+    if (typeof ack !== "function") ack = () => {};
+
+    const room = rooms.get(socket.data.meetingId);
+    const sender = room?.get(socket.id);
+    if (!sender || !sender.isHost) {
+      return ack({ ok: false, error: "Only the meeting host can do this." });
+    }
+    if (!targetId || typeof targetId !== "string" || targetId === socket.id) {
+      return ack({ ok: false, error: "Invalid participant ID." });
+    }
+
+    const target = room.get(targetId);
+    const targetSocket = io.sockets.sockets.get(targetId);
+    if (!target || !targetSocket) {
+      return ack({ ok: false, error: "Participant is no longer in the meeting." });
+    }
+
+    targetSocket.timeout(5000).emit("request-video", { by: sender.name }, (err, res) => {
+      if (err || !res) {
+        return ack({ ok: false, error: `${target.name} did not respond.` });
+      }
+      ack({ ...res, targetName: target.name });
+    });
+  });
+
   socket.on("end-meeting", async () => {
     const id = socket.data.meetingId;
     if (!id || !rooms.get(id)?.get(socket.id)?.isHost) return;
